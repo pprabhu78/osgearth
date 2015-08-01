@@ -82,7 +82,7 @@ ElevationTexureUtils::findExtrema(osg::Texture* elevationTexture, const osg::Mat
 
         if (reader.valid()==false)
         {
-            OE_WARN << LC << "findExtrema ERROR!! Elevation Texture extents too small"<<std::endl;
+            OE_DEBUG << LC << "findExtrema ERROR!! Elevation Texture extents too small"<<std::endl;
             return false;
         }
 
@@ -100,7 +100,7 @@ ElevationTexureUtils::findExtrema(osg::Texture* elevationTexture, const osg::Mat
 
         if ( extrema[0] > extrema[1] )
         {
-            OE_WARN << LC << "findExtrema ERROR!! (" << tileKey.str() << ") c0=" << reader.startCol() 
+            OE_DEBUG << LC << "findExtrema ERROR!! (" << tileKey.str() << ") c0=" << reader.startCol() 
                                                                     << ", r0=" << reader.startRow() 
                                                                     << "; c1=" << reader.endCol() 
                                                                     << ", r1=" << reader.endRow() 
@@ -110,7 +110,7 @@ ElevationTexureUtils::findExtrema(osg::Texture* elevationTexture, const osg::Mat
     }
     else
     {
-        OE_WARN << LC << "findExtrema ERROR!! (" << tileKey.str() << ") no tex image available\n";
+        OE_DEBUG << LC << "findExtrema ERROR!! (" << tileKey.str() << ") no tex image available\n";
     }
 
     OE_DEBUG << LC <<tileKey.getLOD()<< " Extrema Min: "<<extrema[0]<<" Max: "<<extrema[1]<<std::endl;
