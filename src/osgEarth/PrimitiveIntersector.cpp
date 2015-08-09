@@ -21,7 +21,6 @@
 #include <osgEarth/StringUtils>
 #include <osgEarth/Utils>
 #include <osg/Geode>
-#include <osg/KdTree>
 #include <osg/Notify>
 #include <osg/TemplatePrimitiveFunctor>
 

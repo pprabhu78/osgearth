@@ -21,7 +21,6 @@
 #include <osg/Geode>
 #include <osg/Geometry>
 #include <osg/CullSettings>
-#include <osg/KdTree>
 #include <osg/TriangleFunctor>
 #include <vector>
 #include <string>

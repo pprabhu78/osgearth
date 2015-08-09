@@ -22,7 +22,7 @@
 #include "ElevationTextureUtils"
 
 #include <osgEarth/Locators>
-#include <osg/KdTree>
+#include <osgEarth/QuadTree>
 
 using namespace osg;
 using namespace osgEarth::Drivers::RexTerrainEngine;
@@ -154,11 +154,11 @@ ProxyGeometry::build(void)
     constructEmptyGeometry();
     constructXReferenceFrame();
     makeVertices();
-    osg::KdTree* kd = new osg::KdTree();
-    osg::KdTree::BuildOptions buildOptions;
+    QuadTree* quadTree = new QuadTree();
+    QuadTree::BuildOptions buildOptions;
     //buildOptions._maxNumLevels = 3;
-    kd->build(buildOptions, this);
-    this->setShape(kd);
+    quadTree->build(buildOptions, this);
+    this->setShape(quadTree);
     OE_DEBUG << LC << "Built proxy geometry: "<<_key.str()<<std::endl;
 }
 
