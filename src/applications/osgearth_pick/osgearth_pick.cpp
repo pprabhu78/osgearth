@@ -20,18 +20,18 @@
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
 */
 
-#include <osgEarth/RTTPicker>
 #include <osgEarth/Registry>
 #include <osgEarth/ShaderGenerator>
 #include <osgEarth/ObjectIndex>
 #include <osgEarthUtil/EarthManipulator>
 #include <osgEarthUtil/ExampleResources>
 #include <osgEarthUtil/Controls>
+#include <osgEarthUtil/RTTPicker>
 #include <osgEarthFeatures/Feature>
 #include <osgEarthFeatures/FeatureIndex>
 #include <osgEarthAnnotation/AnnotationNode>
 
-#include <osgEarth/Pickers>
+#include <osgEarth/IntersectionPicker>
 
 #include <osgViewer/CompositeViewer>
 #include <osgGA/TrackballManipulator>
@@ -59,8 +59,8 @@ struct TestIsectPicker : public osgGA::GUIEventHandler
     {
         if ( ea.getEventType() == ea.RELEASE )
         {
-            Picker picker(dynamic_cast<osgViewer::View*>(aa.asView()));
-            Picker::Hits hits;
+            IntersectionPicker picker(dynamic_cast<osgViewer::View*>(aa.asView()));
+            IntersectionPicker::Hits hits;
             if(picker.pick(ea.getX(), ea.getY(), hits)) {
                 std::set<ObjectID> oids;
                 if (picker.getObjectIDs(hits, oids)) {
@@ -68,7 +68,7 @@ struct TestIsectPicker : public osgGA::GUIEventHandler
                     ObjectID oid = *oids.begin();
                     osg::ref_ptr<FeatureIndex> fi = index->get<FeatureIndex>(oid);
                     if ( fi.valid() ) {
-                        OE_NOTICE << "Old Picker found OID " << oid << "\n";
+                        OE_NOTICE << "IsectPicker: found OID " << oid << "\n";
                         Feature* f = fi->getFeature(oid);
                         if ( f ) {
                             OE_NOTICE << "...feature ID = " << f->getFID() << "\n";
@@ -76,20 +76,20 @@ struct TestIsectPicker : public osgGA::GUIEventHandler
                     }      
                     osg::ref_ptr<Feature> f = index->get<Feature>(oid);
                     if ( f.valid() ) {
-                        OE_NOTICE << "Old Picker found OID " << oid << "\n";
+                        OE_NOTICE << "IsectPicker: found OID " << oid << "\n";
                         OE_NOTICE << "...feature ID = " << f->getFID() << "\n";
                     }
                     osg::ref_ptr<AnnotationNode> a = index->get<AnnotationNode>(oid);
                     if ( a ) {
-                        OE_NOTICE << "Old Picker found annotation " << a->getName() << "\n";
+                        OE_NOTICE << "IsectPicker: found annotation " << a->getName() << "\n";
                     }
                 }
                 else {
-                    OE_NOTICE << "picked, but no OIDs\n";
+                    OE_NOTICE << "IsectPicker: picked, but no OIDs\n";
                 }
             }
             else {
-                OE_NOTICE << "no intersect\n";
+                OE_NOTICE << "IsectPicker: no intersect\n";
             }
         }
         return false;

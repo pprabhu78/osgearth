@@ -16,8 +16,6 @@
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
 */
-//#undef NDEBUG
-//#include <cassert>
 #include "TileDrawable"
 #include "MPTexture"
 
@@ -33,13 +31,16 @@ using namespace osgEarth;
 
 #define LC "[TileDrawable] "
 
+
 TileDrawable::TileDrawable(const TileKey&        key,
                            const RenderBindings& bindings,
-                           osg::Geometry*        geometry) :
+                           osg::Geometry*        geometry,
+                           osg::Geometry*        proxygeometry) :
 osg::Drawable( ),
-_key         (key),
+_key         ( key ),
 _bindings    ( bindings ),
 _geom        ( geometry ),
+_proxyGeom   ( proxygeometry ),
 _minmax      ( 0, 0 ),
 _drawPatch   ( false )
 {
@@ -49,14 +50,12 @@ _drawPatch   ( false )
     _supportsGLSL = Registry::capabilities().supportsGLSL();
 
     // establish uniform name IDs.
-    _uidUniformNameID             = osg::Uniform::getNameID( "oe_layer_uid" );
-    _orderUniformNameID           = osg::Uniform::getNameID( "oe_layer_order" );
-    _opacityUniformNameID         = osg::Uniform::getNameID( "oe_layer_opacity" );
-    _texMatrixUniformNameID       = osg::Uniform::getNameID( "oe_layer_texMatrix" );
-    _texMatrixParentUniformNameID = osg::Uniform::getNameID( "oe_layer_texMatrix_parent" );
+    _uidUniformNameID           = osg::Uniform::getNameID( "oe_layer_uid" );
+    _orderUniformNameID         = osg::Uniform::getNameID( "oe_layer_order" );
+    _opacityUniformNameID       = osg::Uniform::getNameID( "oe_layer_opacity" );
+    _texMatrixUniformNameID     = osg::Uniform::getNameID( "oe_layer_texMatrix" );
 
-    _textureImageUnit       = SamplerBinding::findUsage(bindings, SamplerBinding::COLOR)->unit();
-    _textureParentImageUnit = SamplerBinding::findUsage(bindings, SamplerBinding::COLOR_PARENT)->unit();
+    _textureImageUnit = SamplerBinding::findUsage(bindings, SamplerBinding::COLOR)->unit();
 }
 
 void
@@ -117,27 +116,27 @@ TileDrawable::drawSurface(osg::RenderInfo& renderInfo) const
 
     // cannot store these in the object since there could be multiple GCs (and multiple
     // PerContextPrograms) at large
-    GLint opacityLocation           = -1;
-    GLint uidLocation               = -1;
-    GLint orderLocation             = -1;
-    GLint texMatrixLocation         = -1;
-    GLint texMatrixParentLocation   = -1;
+    GLint opacityLocation       = -1;
+    GLint uidLocation           = -1;
+    GLint orderLocation         = -1;
+    GLint texMatrixLocation     = -1;
 
     // The PCP can change (especially in a VirtualProgram environment). So we do need to
     // requery the uni locations each time unfortunately. TODO: explore optimizations.
     if ( pcp )
     {
-        opacityLocation             = pcp->getUniformLocation( _opacityUniformNameID );
-        uidLocation                 = pcp->getUniformLocation( _uidUniformNameID );
-        orderLocation               = pcp->getUniformLocation( _orderUniformNameID );
-        texMatrixLocation           = pcp->getUniformLocation( _texMatrixUniformNameID );
-        texMatrixParentLocation     = pcp->getUniformLocation( _texMatrixParentUniformNameID );
+        opacityLocation      = pcp->getUniformLocation( _opacityUniformNameID );
+        uidLocation          = pcp->getUniformLocation( _uidUniformNameID );
+        orderLocation        = pcp->getUniformLocation( _orderUniformNameID );
+        texMatrixLocation    = pcp->getUniformLocation( _texMatrixUniformNameID );
     }
 
     float prevOpacity = -1.0f;
     if ( _mptex.valid() && !_mptex->getPasses().empty() )
     {
         float prevOpacity = -1.0f;
+
+        state.setActiveTextureUnit( _textureImageUnit );
 
         // in FFP mode, we need to enable the GL mode for texturing:
         if ( !pcp )
@@ -151,28 +150,14 @@ TileDrawable::drawSurface(osg::RenderInfo& renderInfo) const
 
             if ( pass._layer->getVisible() && pass._layer->getOpacity() > 0.1 )
             {
-                {
-                    // Apply the texture.
-                    state.setActiveTextureUnit( _textureImageUnit );
-                    const osg::StateAttribute* lastTex = state.getLastAppliedTextureAttribute(_textureImageUnit, osg::StateAttribute::TEXTURE);
-                    if ( lastTex != pass._texture.get() )
-                        pass._texture->apply( state );
-
-                    // Apply the texture matrix.
-                    ext->glUniformMatrix4fv( texMatrixLocation, 1, GL_FALSE, pass._matrix.ptr() );
-                }
-
-                {
-                    // Apply the parent texture.
-                    state.setActiveTextureUnit( _textureParentImageUnit );
-                    const osg::StateAttribute* lastTex = state.getLastAppliedTextureAttribute(_textureParentImageUnit, osg::StateAttribute::TEXTURE);
-                    if ( lastTex != pass._textureParent.get() )
-                        pass._textureParent->apply( state );
-
-                    // Apply the parent texture matrix.
-                    ext->glUniformMatrix4fv( texMatrixParentLocation, 1, GL_FALSE, pass._matrixWRTParent.ptr() );
-                }
-
+                // Apply the texture.
+                const osg::StateAttribute* lastTex = state.getLastAppliedTextureAttribute(_textureImageUnit, osg::StateAttribute::TEXTURE);
+                if ( lastTex != pass._texture.get() )
+                    pass._texture->apply( state );
+            
+                // Apply the texture matrix.
+                ext->glUniformMatrix4fv( texMatrixLocation, 1, GL_FALSE, pass._matrix.ptr() );
+            
                 // Order uniform (TODO: evaluate whether we still need this)
                 if ( orderLocation >= 0 )
                 {
@@ -301,18 +286,6 @@ void
 TileDrawable::compileGLObjects(osg::RenderInfo& renderInfo) const
 {
     osg::Drawable::compileGLObjects( renderInfo );
-
-#if 0
-    osg::State& state = *renderInfo.getState();
-    unsigned contextID = state.getContextID();
-#if OSG_MIN_VERSION_REQUIRED(3,3,3)
-    osg::GLExtensions* extensions = osg::GLExtensions::Get(contextID, true);
-#else
-    GLBufferObject::Extensions* extensions = GLBufferObject::getExtensions(contextID, true);
-#endif
-    if (!extensions)
-        return;
-#endif
 
     if ( _geom.valid() )
     {

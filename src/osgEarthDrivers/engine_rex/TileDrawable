@@ -42,15 +42,13 @@ namespace osgEarth { namespace Drivers { namespace RexTerrainEngine
     class TileDrawable : public osg::Drawable
     {
     public:
-        mutable Threading::Mutex   _frameSyncMutex;
-
         // uniform name IDs.
         unsigned _uidUniformNameID;
         unsigned _orderUniformNameID;
         unsigned _opacityUniformNameID;
         unsigned _tileKeyUniformNameID;
         unsigned _texMatrixUniformNameID;
-        unsigned _texMatrixParentUniformNameID;
+        unsigned _parentTexMatrixUniformNameID;
 
         // Data stored for each graphics context:
         struct PerContextData {
@@ -70,6 +68,8 @@ namespace osgEarth { namespace Drivers { namespace RexTerrainEngine
         // underlying geometry, possible shared between this tile and other.
         osg::ref_ptr<osg::Geometry> _geom;
 
+        // proxy geometry used for intersections, bounds, etc.
+        osg::ref_ptr<osg::Geometry> _proxyGeom;
 
         // local elevation extrema
         osg::Vec2f _minmax;
@@ -79,7 +79,6 @@ namespace osgEarth { namespace Drivers { namespace RexTerrainEngine
         osg::ref_ptr<MPTexture> _mptex;
 
         int _textureImageUnit;
-        int _textureParentImageUnit;
 
         const TileKey _key;
 
@@ -89,7 +88,8 @@ namespace osgEarth { namespace Drivers { namespace RexTerrainEngine
         TileDrawable(
             const TileKey&        key,
             const RenderBindings& bindings,
-            osg::Geometry*        geometry);
+            osg::Geometry*        geometry,
+            osg::Geometry*        proxygeometry);
 
         // whether to draw this as a multi-image geometry or as a tesselation patch.
         void setDrawAsPatches(bool value) { _drawPatch = value; }
@@ -141,10 +141,24 @@ namespace osgEarth { namespace Drivers { namespace RexTerrainEngine
         void accept(osg::Drawable::ConstAttributeFunctor& f) const { if ( _geom.valid() ) _geom->accept(f); }
 
         bool supports(osg::PrimitiveFunctor& f) const { return true; }
-        void accept(osg::PrimitiveFunctor& f) const {}
+        void accept(osg::PrimitiveFunctor& f) const 
+        { 
+            if ( _proxyGeom.valid() ) 
+            {
+                _proxyGeom->accept(f); 
+                //OE_INFO << "key=" << _key.str() << "\n";
+            }
+        }
         
         bool supports(osg::PrimitiveIndexFunctor& f) const { return true; }
-        void accept(osg::PrimitiveIndexFunctor& f) const {}
+        void accept(osg::PrimitiveIndexFunctor& f) const
+        { 
+            if ( _proxyGeom.valid() ) 
+            {
+                _proxyGeom->accept(f);
+                //OE_INFO << "key=" << _key.str() << "\n";
+            }
+        }
         
         // recalculate the bound for the tile key uniform.
 #if OSG_VERSION_GREATER_THAN(3,3,1)
