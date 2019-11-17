@@ -1,6 +1,6 @@
 /* -*-c++-*- */
-/* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2016 Pelican Mapping
+/* osgEarth - Geospatial SDK for OpenSceneGraph
+ * Copyright 2019 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -27,6 +27,7 @@ using namespace osgEarth::Features;
 #define LC "[FeatureMaskLayer] "
 
 REGISTER_OSGEARTH_LAYER(feature_mask, FeatureMaskLayer);
+REGISTER_OSGEARTH_LAYER(mask, FeatureMaskLayer);
 
 //........................................................................
 

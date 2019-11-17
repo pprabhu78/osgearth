@@ -1,6 +1,6 @@
 /* -*-c++-*- */
-/* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2016 Pelican Mapping
+/* osgEarth - Geospatial SDK for OpenSceneGraph
+ * Copyright 2019 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -109,17 +109,17 @@ namespace
         {
             image = 0;
             opacity = 1;
-            dataInExtents = false;
         }
 
-        ImageInfo(osg::Image* image, float opacity, bool dataInExtents)
+        ImageInfo(osg::Image* image, float opacity, const TileKey& bestAvailableKey)
         {
             this->image = image;
             this->opacity = opacity;
-            this->dataInExtents = dataInExtents;
+            this->bestAvailableKey = bestAvailableKey;           
         }
 
-        bool dataInExtents;
+        TileKey bestAvailableKey;
+        //bool mayHaveDataForKey;
         float opacity;
         osg::ref_ptr< osg::Image> image;
     };
@@ -151,10 +151,10 @@ CompositeTileSource::createImage(const TileKey&    key,
     {
         ImageLayer* layer = itr->get();
         ImageInfo imageInfo;
-        imageInfo.dataInExtents = layer->mayHaveDataInExtent(key.getExtent());
         imageInfo.opacity = layer->getOpacity();
-
-        if (imageInfo.dataInExtents)
+        imageInfo.bestAvailableKey = layer->getBestAvailableTileKey(key);
+        
+        if (imageInfo.bestAvailableKey == key)
         {
             GeoImage image = layer->createImage(key, progress);
             if (image.valid())
@@ -162,7 +162,9 @@ CompositeTileSource::createImage(const TileKey&    key,
                 imageInfo.image = image.getImage();
             }
 
-            // If the progress got cancelled or it needs a retry then return NULL to prevent this tile from being built and cached with incomplete or partial data.
+            // If the progress got cancelled (due to any reason, including network error)
+            // then return NULL to prevent this tile from being built and cached with
+            // incomplete or partial data.
             if (progress && progress->isCanceled())
             {
                 OE_DEBUG << LC << " createImage was cancelled or needs retry for " << key.str() << std::endl;
@@ -196,27 +198,31 @@ CompositeTileSource::createImage(const TileKey&    key,
         {
             ImageInfo& info = images[i];
             ImageLayer* layer = _imageLayers[i].get();
-            if (!info.image.valid() && info.dataInExtents)
-            {                      
-                TileKey parentKey = key.createParentKey();
+
+            // If we didn't get any data for the tilekey, but the extents do overlap,
+            // we will try to fall back on lower LODs and get data there instead:
+            if (info.image.valid() == false && info.bestAvailableKey.valid())
+            {
+                TileKey currentKey = info.bestAvailableKey;
 
                 GeoImage image;
-                while (!image.valid() && parentKey.valid())
+                while (!image.valid() && currentKey.valid())
                 {
-                    image = layer->createImage(parentKey, progress);
+                    image = layer->createImage(currentKey, progress);
                     if (image.valid())
                     {
                         break;
                     }
 
-                    // If the progress got cancelled or it needs a retry then return NULL to prevent this tile from being built and cached with incomplete or partial data.
+                    // If the progress got cancelled or it needs a retry then return INVALID
+                    // to prevent this tile from being built and cached with incomplete or partial data.
                     if (progress && progress->isCanceled())
                     {
                         OE_DEBUG << LC << " createImage was cancelled or needs retry for " << key.str() << std::endl;
                         return 0L;
                     }
 
-                    parentKey = parentKey.createParentKey();
+                    currentKey = currentKey.createParentKey();
                 }
 
                 if (image.valid())
@@ -236,7 +242,8 @@ CompositeTileSource::createImage(const TileKey&    key,
     for (unsigned int i = 0; i < images.size(); i++)
     {
         ImageInfo& info = images[i];
-        if (info.image.valid()) numValidImages++;        
+        if (info.image.valid())
+            numValidImages++;        
     }    
 
     if ( progress && progress->isCanceled() )
@@ -254,7 +261,9 @@ CompositeTileSource::createImage(const TileKey&    key,
         {
             ImageInfo& info = images[i];
             if (info.image.valid())
+            {
                 return info.image.release();
+            }
         }
         return 0L;
     }
@@ -281,9 +290,6 @@ CompositeTileSource::createImage(const TileKey&    key,
         }        
         return result;
     }
-
-
-
 }
 
 osg::HeightField* CompositeTileSource::createHeightField(
@@ -388,7 +394,9 @@ CompositeTileSource::initialize(const osgDB::Options* dbOptions)
             }
             else
             {
-                OE_DEBUG << LC << "Could not open image layer (" << layer->getName() << ") ... " << status.message() << std::endl;
+                setStatus(Status(Status::ResourceUnavailable, Stringify()
+                    << "Could not open sublayer (" << layer->getName() << ") ... " << status.message()));
+                return getStatus();
             }            
         }
         else if (i->_elevationLayerOptions.isSet() && !i->_layer.valid())
@@ -407,7 +415,9 @@ CompositeTileSource::initialize(const osgDB::Options* dbOptions)
             }
             else
             {
-                OE_WARN << LC << "Could not open elevation layer (" << layer->getName() << ") ... " << status.message() << std::endl;
+                setStatus(Status(Status::ResourceUnavailable, Stringify()
+                    << "Could not open sublayer (" << layer->getName() << ") ... " << status.message()));
+                return getStatus();
             }
         }
 
@@ -419,39 +429,45 @@ CompositeTileSource::initialize(const osgDB::Options* dbOptions)
         else
         {            
             TileSource* source = i->_layer->getTileSource();
-
-            // If no profile is specified assume they want to use the profile of the first layer in the list.
-            if (!profile.valid())
+            if (source)
             {
-                profile = source->getProfile();
-            }
-
-            _dynamic = _dynamic || source->isDynamic();
-            
-            // gather extents                        
-            const DataExtentList& extents = source->getDataExtents();  
-
-            // If even one of the layers' data extents is unknown, the entire composite
-            // must have unknown data extents:
-            if (extents.empty())
-            {
-                dataExtentsValid = false;
-                getDataExtents().clear();
-            }
-
-            if (dataExtentsValid)
-            {
-                for( DataExtentList::const_iterator j = extents.begin(); j != extents.end(); ++j )
-                {                
-                    // Convert the data extent to the profile that is actually used by this TileSource
-                    DataExtent dataExtent = *j;                
-                    GeoExtent ext = dataExtent.transform(profile->getSRS());
-                    unsigned int minLevel = 0;
-                    unsigned int maxLevel = profile->getEquivalentLOD( source->getProfile(), *dataExtent.maxLevel() );                                        
-                    dataExtent = DataExtent(ext, minLevel, maxLevel);                                
-                    getDataExtents().push_back( dataExtent );
+                // If no profile is specified assume they want to use the profile of the first layer in the list.
+                if (!profile.valid())
+                {
+                    profile = source->getProfile();
                 }
-            }            
+
+                _dynamic = _dynamic || source->isDynamic();
+            
+                // gather extents                        
+                const DataExtentList& extents = source->getDataExtents();  
+
+                // If even one of the layers' data extents is unknown, the entire composite
+                // must have unknown data extents:
+                if (extents.empty())
+                {
+                    dataExtentsValid = false;
+                    getDataExtents().clear();
+                }
+
+                if (dataExtentsValid)
+                {
+                    for( DataExtentList::const_iterator j = extents.begin(); j != extents.end(); ++j )
+                    {                
+                        // Convert the data extent to the profile that is actually used by this TileSource
+                        DataExtent dataExtent = *j;                
+                        GeoExtent ext = dataExtent.transform(profile->getSRS());
+                        unsigned int minLevel = 0;
+                        unsigned int maxLevel = profile->getEquivalentLOD( source->getProfile(), *dataExtent.maxLevel() );                                        
+                        dataExtent = DataExtent(ext, minLevel, maxLevel);                                
+                        getDataExtents().push_back( dataExtent );
+                    }
+                }
+            }
+            else
+            {
+                OE_WARN << LC << "Tile Source is NULL (" << i->_layer->getName() << ") ... " << std::endl;
+            }
 
             ++i;
         }

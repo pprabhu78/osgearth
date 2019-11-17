@@ -1,5 +1,5 @@
 /* -*-c++-*- */
-/* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
+/* osgEarth - Geospatial SDK for OpenSceneGraph
  * Copyright 2008-2014 Pelican Mapping
  * http://osgearth.org
  *
@@ -79,7 +79,7 @@ namespace osgEarth { namespace Drivers { namespace RexTerrainEngine
         // is drawing a tile for the first LayerDrawable.
         int _layerOrder;
 
-
+        // Renders the tile.
         void draw(osg::RenderInfo& ri, DrawState& ds, osg::Referenced* layerData) const;
 
         // Less than operator will ensure that tiles are sorted high-to-low LOD
@@ -97,6 +97,7 @@ namespace osgEarth { namespace Drivers { namespace RexTerrainEngine
             _sharedSamplers(0L),
             _colorSamplers(0L),
             _geom(0L),
+            _key(0L),
             _elevTexelCoeff(1.0f, 0.0f),
             _drawCallback(0L),
             _drawPatch(false),
@@ -108,7 +109,8 @@ namespace osgEarth { namespace Drivers { namespace RexTerrainEngine
      * Ordered list of tile drawing commands.
      * List is faster than vector here (benchmarked)
      */
-    typedef std::list<DrawTileCommand> DrawTileCommands;
+    //typedef std::list<DrawTileCommand> DrawTileCommands;
+    typedef std::vector<DrawTileCommand> DrawTileCommands;
 
 } } } // namespace 
 

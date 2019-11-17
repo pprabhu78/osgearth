@@ -1,6 +1,6 @@
 /* -*-c++-*- */
-/* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2016 Pelican Mapping
+/* osgEarth - Geospatial SDK for OpenSceneGraph
+ * Copyright 2019 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -20,7 +20,9 @@
 #include <osgEarth/Version>
 #include <osg/FragmentProgram>
 #include <osg/GL2Extensions>
+#include <osg/Version>
 #include <osgViewer/Version>
+#include <gdal_priv.h>
 
 using namespace osgEarth;
 
@@ -182,6 +184,12 @@ _isCoreProfile          ( true )
         const osg::GL2Extensions* GL2 = osg::GL2Extensions::Get( id, true );
 
         OE_INFO << LC << "osgEarth Version: " << osgEarthGetVersion() << std::endl;
+
+        OE_INFO << LC << "OSG Version:      " << osgGetVersion() << std::endl;
+
+#ifdef GDAL_RELEASE_NAME
+        OE_INFO << LC << "GDAL Version:     " << GDAL_RELEASE_NAME << std::endl;
+#endif
         
         if ( ::getenv("OSGEARTH_NO_GLSL") )
         {
@@ -262,8 +270,6 @@ _isCoreProfile          ( true )
 #else
         _maxLights = 1;
 #endif
-        OE_INFO << LC << "  Max lights = " << _maxLights << std::endl;
-
         OE_INFO << LC << "  GLSL = " << SAYBOOL(_supportsGLSL) << std::endl;
 
         if ( _supportsGLSL )
@@ -278,14 +284,11 @@ _isCoreProfile          ( true )
             osg::isGLExtensionSupported( id, "GL_EXT_texture_array" );
         OE_INFO << LC << "  Texture arrays = " << SAYBOOL(_supportsTextureArrays) << std::endl;
 
-        _supportsTexture3D = osg::isGLExtensionSupported( id, "GL_EXT_texture3D" );
-        OE_INFO << LC << "  3D textures = " << SAYBOOL(_supportsTexture3D) << std::endl;
-
         _supportsMultiTexture = 
             osg::getGLVersionNumber() >= 1.3f ||
             osg::isGLExtensionSupported( id, "GL_ARB_multitexture") ||
             osg::isGLExtensionSupported( id, "GL_EXT_multitexture" );
-        OE_INFO << LC << "  Multitexturing = " << SAYBOOL(_supportsMultiTexture) << std::endl;
+        //OE_INFO << LC << "  Multitexturing = " << SAYBOOL(_supportsMultiTexture) << std::endl;
 
         _supportsStencilWrap = osg::isGLExtensionSupported( id, "GL_EXT_stencil_wrap" );
         //OE_INFO << LC << "  Stencil wrapping = " << SAYBOOL(_supportsStencilWrap) << std::endl;
@@ -311,7 +314,7 @@ _isCoreProfile          ( true )
         _supportsUniformBufferObjects = 
             _supportsGLSL &&
             osg::isGLExtensionOrVersionSupported( id, "GL_ARB_uniform_buffer_object", 2.0f );
-        OE_INFO << LC << "  uniform buffer objects = " << SAYBOOL(_supportsUniformBufferObjects) << std::endl;
+        //OE_INFO << LC << "  uniform buffer objects = " << SAYBOOL(_supportsUniformBufferObjects) << std::endl;
 
         if ( _supportsUniformBufferObjects && _maxUniformBlockSize == 0 )
         {
@@ -325,7 +328,7 @@ _isCoreProfile          ( true )
 #else
         _supportsNonPowerOfTwoTextures = true;
 #endif
-        OE_INFO << LC << "  NPOT textures = " << SAYBOOL(_supportsNonPowerOfTwoTextures) << std::endl;
+        //OE_INFO << LC << "  NPOT textures = " << SAYBOOL(_supportsNonPowerOfTwoTextures) << std::endl;
 
 
 #if !defined(OSG_GLES3_AVAILABLE)
@@ -349,7 +352,7 @@ _isCoreProfile          ( true )
 
         bool supportsTransformFeedback =
             osg::isGLExtensionSupported( id, "GL_ARB_transform_feedback2" );
-        OE_INFO << LC << "  Transform feedback = " << SAYBOOL(supportsTransformFeedback) << "\n";
+        //OE_INFO << LC << "  Transform feedback = " << SAYBOOL(supportsTransformFeedback) << "\n";
 
 
         // Writing to gl_FragDepth is not supported under GLES, is supported under gles3
@@ -367,22 +370,11 @@ _isCoreProfile          ( true )
         // BUT unfortunately, they dont' seem to work too well with shaders. Colors
         // change randomly, etc. Might work OK for textured geometry but not for 
         // untextured. TODO: investigate.
-#if 1
         _preferDLforStaticGeom = false;
         if ( ::getenv("OSGEARTH_TRY_DISPLAY_LISTS") )
         {
             _preferDLforStaticGeom = true;
         }
-#else
-        if ( ::getenv("OSGEARTH_ALWAYS_USE_VBOS") )
-        {
-            _preferDLforStaticGeom = false;
-        }
-        else
-        {
-            _preferDLforStaticGeom = isNVIDIA;
-        }
-#endif
 
         //OE_INFO << LC << "  prefer DL for static geom = " << SAYBOOL(_preferDLforStaticGeom) << std::endl;
 
@@ -390,15 +382,6 @@ _isCoreProfile          ( true )
         bool isATI = _vendor.find("ATI ") == 0;
 
         _supportsMipmappedTextureUpdates = isATI && enableATIworkarounds ? false : true;
-        //OE_INFO << LC << "  Mipmapped texture updates = " << SAYBOOL(_supportsMipmappedTextureUpdates) << std::endl;
-
-#if 0
-        // Intel workarounds:
-        bool isIntel = 
-            _vendor.find("Intel ")   != std::string::npos ||
-            _vendor.find("Intel(R)") != std::string::npos ||
-            _vendor.compare("Intel") == 0;
-#endif
 
         _maxFastTextureSize = _maxTextureSize;
 

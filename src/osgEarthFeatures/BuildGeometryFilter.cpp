@@ -1,6 +1,6 @@
 /* -*_maxPolyTilingAngle_deg-c++-*- */
-/* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2016 Pelican Mapping
+/* osgEarth - Geospatial SDK for OpenSceneGraph
+ * Copyright 2019 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -143,6 +143,9 @@ BuildGeometryFilter::processPolygons(FeatureList& features, FilterContext& conte
             StringExpression temp( poly->script().get() );
             input->eval( temp, &context );
         }
+
+        if (input->getGeometry() == 0L)
+            continue;
 
         GeometryIterator parts( input->getGeometry(), false );
         while( parts.hasMore() )

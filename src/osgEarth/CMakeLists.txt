@@ -38,6 +38,7 @@ ENDIF(WIN32)
 SET(LIB_NAME osgEarth)
 
 set(TARGET_GLSL
+    CascadeDraping.glsl
     ClipPlane.glsl
     DepthOffset.vert.glsl
     Draping.vert.glsl
@@ -68,6 +69,7 @@ configure_shaders(
 SET(HEADER_PATH ${OSGEARTH_SOURCE_DIR}/include/${LIB_NAME})
 
 SET(LIB_PUBLIC_HEADERS
+    Async
     Bounds
     Cache
     CacheEstimator
@@ -75,9 +77,11 @@ SET(LIB_PUBLIC_HEADERS
     CachePolicy
     CacheSeed
     Capabilities
+    CascadeDrapingDecorator
     Clamping
     ClampableNode
     ClampingTechnique
+    Color
     ColorFilter
     Common
     CompositeTileSource
@@ -126,6 +130,7 @@ SET(LIB_PUBLIC_HEADERS
     LandCoverLayer
     Layer
     LayerListener
+    LayerShader
     Lighting
     LineDrawable
     LineFunctor
@@ -169,10 +174,14 @@ SET(LIB_PUBLIC_HEADERS
     Revisioning
     SceneGraphCallback
     ScreenSpaceLayout
+    ScreenSpaceLayoutImpl
+    ScreenSpaceLayoutDeclutter    
+    ScreenSpaceLayoutCallout
     Shaders
     ShaderFactory
     ShaderGenerator
     ShaderLoader
+    ShaderMerger
     ShaderUtils
     Shadowing
     SimplexNoise
@@ -180,6 +189,7 @@ SET(LIB_PUBLIC_HEADERS
     StateSetCache
     Status
     StringUtils
+    #TDTiles
     TaskService
     Terrain
     TerrainEffect
@@ -246,6 +256,7 @@ IF (OSGEARTH_EMBED_GIT_SHA)
 ENDIF (OSGEARTH_EMBED_GIT_SHA)
 
 set(TARGET_SRC
+    Async.cpp
     Bounds.cpp
     Cache.cpp
     CacheBin.cpp
@@ -253,9 +264,11 @@ set(TARGET_SRC
     CachePolicy.cpp
     CacheSeed.cpp
     Capabilities.cpp
+    CascadeDrapingDecorator.cpp
     Clamping.cpp
     ClampableNode.cpp
     ClampingTechnique.cpp
+    Color.cpp
     ColorFilter.cpp
     CompositeTileSource.cpp
     Config.cpp
@@ -298,6 +311,7 @@ set(TARGET_SRC
     LandCover.cpp
     LandCoverLayer.cpp
     Layer.cpp
+    LayerShader.cpp
     Lighting.cpp
     LineDrawable.cpp
     Locators.cpp
@@ -338,6 +352,7 @@ set(TARGET_SRC
     ShaderFactory.cpp
     ShaderGenerator.cpp
     ShaderLoader.cpp
+    ShaderMerger.cpp
     ShaderUtils.cpp
     Shadowing.cpp
     SimplexNoise.cpp
@@ -346,6 +361,7 @@ set(TARGET_SRC
     Status.cpp
     StringUtils.cpp
     TaskService.cpp
+    #TDTiles.cpp
     Terrain.cpp
     TerrainLayer.cpp
     TerrainOptions.cpp

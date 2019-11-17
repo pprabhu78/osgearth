@@ -1,7 +1,7 @@
 
 /* -*-c++-*- */
-/* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2016 Pelican Mapping
+/* osgEarth - Geospatial SDK for OpenSceneGraph
+ * Copyright 2019 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -91,6 +91,14 @@ void LayerOptions::mergeConfig(const Config& conf)
 {
     ConfigOptions::mergeConfig(conf);
     fromConfig(_conf);
+}
+
+//.................................................................
+
+void
+Layer::TraversalCallback::traverse(osg::Node* node, osg::NodeVisitor* nv) const
+{
+    node->accept(*nv);
 }
 
 //.................................................................
@@ -230,16 +238,6 @@ Layer::open()
         getOrCreateStateSet()->setDefine(options().shaderDefine().get());
     }
 
-    // Load any user defined shaders
-    if (options().shader().isSet() && !options().shader()->empty())
-    {
-        OE_INFO << LC << "Installing inline shader code\n";
-        VirtualProgram* vp = VirtualProgram::getOrCreate(this->getOrCreateStateSet());
-        ShaderPackage package;
-        package.add("", options().shader().get());
-        package.loadAll(vp, getReadOptions());
-    }
-
     return _status;
 }
 
@@ -247,6 +245,18 @@ void
 Layer::close()
 {
     setStatus(Status::OK());
+}
+
+void
+Layer::setTerrainResources(TerrainResources* res)
+{
+    // Install an earth-file shader if necessary (once)
+    if (options().shader().isSet() && !_shader.valid())
+    {
+        OE_INFO << LC << "Installing inline shader code" << std::endl;
+        _shader = new LayerShader(options().shader().get());
+        _shader->install(this, res);
+    }
 }
 
 void
@@ -267,12 +277,8 @@ Layer::getTypeName() const
 Layer*
 Layer::create(const ConfigOptions& options)
 {
-    return create(options.getConfig().key(), options);
-}
+    std::string name = options.getConfig().key();
 
-Layer*
-Layer::create(const std::string& name, const ConfigOptions& options)
-{
     if ( name.empty() )
     {
         OE_WARN << "[Layer] ILLEGAL- Layer::create requires a plugin name" << std::endl;
@@ -336,12 +342,29 @@ Layer::removeCallback(LayerCallback* cb)
         _callbacks.erase( i );
 }
 
-bool
-Layer::cull(const osgUtil::CullVisitor* cv, osg::State::StateSetStack& stateSetStack) const
+void
+Layer::apply(osg::Node* node, osg::NodeVisitor* nv) const
 {
-    //if (getStateSet())
-    //    cv->pushStateSet(getStateSet());
-    return true;
+    if (_traversalCallback.valid())
+    {
+        _traversalCallback->operator()(node, nv);
+    }
+    else
+    {
+        node->accept(*nv);
+    }
+}
+
+void
+Layer::setCullCallback(TraversalCallback* cb)
+{
+    _traversalCallback = cb;
+}
+
+const Layer::TraversalCallback*
+Layer::getCullCallback() const
+{
+    return _traversalCallback.get();
 }
 
 const GeoExtent&
@@ -359,6 +382,12 @@ Layer::getOrCreateStateSet()
         _stateSet = new osg::StateSet();
         _stateSet->setName("Layer");
     }
+    return _stateSet.get();
+}
+
+osg::StateSet*
+Layer::getStateSet() const
+{
     return _stateSet.get();
 }
 
@@ -387,4 +416,30 @@ void
 Layer::setAttribution(const std::string& attribution)
 {
     _options->attribution() = attribution;
+}
+
+void
+Layer::resizeGLObjectBuffers(unsigned maxSize)
+{
+    osg::Object::resizeGLObjectBuffers(maxSize);
+    if (getNode())
+        getNode()->resizeGLObjectBuffers(maxSize);
+    if (getStateSet())
+        getStateSet()->resizeGLObjectBuffers(maxSize);
+}
+
+void
+Layer::releaseGLObjects(osg::State* state) const
+{
+    osg::Object::releaseGLObjects(state);
+    if (getNode())
+        getNode()->releaseGLObjects(state);
+    if (getStateSet())
+        getStateSet()->releaseGLObjects(state);
+}
+
+void
+Layer::modifyTileBoundingBox(const TileKey& key, osg::BoundingBox& box) const
+{
+    //NOP
 }

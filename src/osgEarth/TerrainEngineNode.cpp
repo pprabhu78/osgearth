@@ -1,6 +1,6 @@
 /* -*-c++-*- */
-/* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2016 Pelican Mapping
+/* osgEarth - Geospatial SDK for OpenSceneGraph
+ * Copyright 2019 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -241,7 +241,7 @@ TerrainEngineNode::computeBound() const
 {
     if ( getEllipsoidModel() )
     {
-        double maxRad = std::max(
+        double maxRad = osg::maximum(
             getEllipsoidModel()->getRadiusEquator(),
             getEllipsoidModel()->getRadiusPolar());
 
@@ -339,6 +339,40 @@ TerrainEngineNode::removeCreateTileModelCallback(CreateTileModelCallback* callba
     }
 }
 
+void
+TerrainEngineNode::addModifyTileBoundingBoxCallback(ModifyTileBoundingBoxCallback* callback)
+{
+    Threading::ScopedWriteLock exclusiveLock(_createTileModelCallbacksMutex);
+    _modifyTileBoundingBoxCallbacks.push_back(callback);
+}
+
+void
+TerrainEngineNode::removeModifyTileBoundingBoxCallback(ModifyTileBoundingBoxCallback* callback)
+{
+    Threading::ScopedWriteLock exclusiveLock(_createTileModelCallbacksMutex);
+    for (ModifyTileBoundingBoxCallbacks::iterator i = _modifyTileBoundingBoxCallbacks.begin();
+        i != _modifyTileBoundingBoxCallbacks.end();
+        ++i)
+    {
+        if (i->get() == callback)
+        {
+            _modifyTileBoundingBoxCallbacks.erase(i);
+            break;
+        }
+    }
+}
+
+void
+TerrainEngineNode::fireModifyTileBoundingBoxCallbacks(const TileKey& key, osg::BoundingBox& box)
+{
+    Threading::ScopedReadLock sharedLock(_createTileModelCallbacksMutex);
+    for (ModifyTileBoundingBoxCallbacks::iterator i = _modifyTileBoundingBoxCallbacks.begin();
+        i != _modifyTileBoundingBoxCallbacks.end();
+        ++i)
+    {
+        i->get()->modifyBoundingBox(key, box);
+    }
+}
 
 namespace
 {

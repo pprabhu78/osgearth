@@ -1,6 +1,6 @@
 /* -*-c++-*- */
-/* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2016 Pelican Mapping
+/* osgEarth - Geospatial SDK for OpenSceneGraph
+* Copyright 2019 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -438,7 +438,7 @@ FeatureNode::getConfig() const
         conf.set("name", getName());
 
         Config geomConf("geometry");
-        geomConf.value() = GeometryUtils::geometryToWKT( feature->getGeometry() );
+        geomConf.setValue(GeometryUtils::geometryToWKT( feature->getGeometry() ));
         conf.add(geomConf);
 
         std::string srs = feature->getSRS() ? feature->getSRS()->getHorizInitString() : "";

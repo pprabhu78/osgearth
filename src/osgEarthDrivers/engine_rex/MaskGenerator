@@ -1,5 +1,5 @@
 /* -*-c++-*- */
-/* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
+/* osgEarth - Geospatial SDK for OpenSceneGraph
 * Copyright 2008-2014 Pelican Mapping
 * http://osgearth.org
 *
@@ -96,6 +96,7 @@ namespace osgEarth { namespace Drivers { namespace RexTerrainEngine
             osg::Vec3Array* texCoords,
             osg::Vec3Array* normals,
             osg::Vec3Array* neighbors,
+            osg::Vec3Array* neighborNormals,
             osg::ref_ptr<osg::DrawElementsUInt>& out_elements);
 
     protected:

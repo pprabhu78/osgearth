@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2016 Pelican Mapping
+ * Copyright 2019 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -492,7 +492,7 @@ GeometryCompiler::compile(FeatureList&          workingSet,
             // no ss cache because we will optimize later.
             Registry::shaderGenerator().run( 
                 resultGroup.get(),
-                "osgEarth.GeomCompiler" );
+                "GeometryCompiler shadergen" );
         }
         else if ( _options.shaderPolicy() == SHADERPOLICY_DISABLE )
         {

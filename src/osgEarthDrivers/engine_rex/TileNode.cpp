@@ -1,5 +1,5 @@
 /* -*-c++-*- */
-/* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
+/* osgEarth - Geospatial SDK for OpenSceneGraph
 * Copyright 2008-2014 Pelican Mapping
 * http://osgearth.org
 *
@@ -145,28 +145,31 @@ TileNode::create(const TileKey& key, TileNode* parent, EngineContext* context)
     // whether the stitch together normal maps for adjacent tiles.
     _stitchNormalMap = context->_options.normalizeEdges() == true;
 
-    // Encode the tile key in a uniform. Note! The X and Y components are presented
-    // modulo 2^16 form so they don't overrun single-precision space.
+    // Encode the tile key in a uniform
     unsigned tw, th;
     _key.getProfile()->getNumTiles(_key.getLOD(), tw, th);
-
-    const double m = 65536; //pow(2.0, 16.0);
 
     double x = (double)_key.getTileX();
     double y = (double)(th - _key.getTileY()-1);
 
     _tileKeyValue.set(
-        (float)fmod(x, m),
-        (float)fmod(y, m),
+        (float)x,
+        (float)y,
         (float)_key.getLOD(),
         -1.0f);
 
     // initialize all the per-tile uniforms the shaders will need:
-    float start = (float)context->getSelectionInfo().getLOD(_key.getLOD())._morphStart;
-    float end   = (float)context->getSelectionInfo().getLOD(_key.getLOD())._morphEnd;
-    float one_by_end_minus_start = end - start;
-    one_by_end_minus_start = 1.0f/one_by_end_minus_start;
-    _morphConstants.set( end * one_by_end_minus_start, one_by_end_minus_start );
+    float range, morphStart, morphEnd;
+    context->getSelectionInfo().get(_key, range, morphStart, morphEnd);
+
+    float one_over_end_minus_start = 1.0f/(morphEnd - morphStart);
+    _morphConstants.set(morphEnd * one_over_end_minus_start, one_over_end_minus_start);
+
+    // Make a tilekey to use for testing whether to subdivide.
+    if (_key.getTileY() <= th/2)
+        _subdivideTestKey = _key.createChildKey(0);
+    else
+        _subdivideTestKey = _key.createChildKey(3);
 
     // Initialize the data model by copying the parent's rendering data
     // and scale/biasing the matrices.
@@ -249,7 +252,7 @@ TileNode::computeBound() const
     {
         bs = _surface->getBound();
         const osg::BoundingBox bbox = _surface->getAlignedBoundingBox();
-        _tileKeyValue.a() = std::max( (bbox.xMax()-bbox.xMin()), (bbox.yMax()-bbox.yMin()) );
+        _tileKeyValue.a() = osg::maximum( (bbox.xMax()-bbox.xMin()), (bbox.yMax()-bbox.yMin()) );
     }    
     return bs;
 }
@@ -261,7 +264,7 @@ TileNode::isDormant(const osg::FrameStamp* fs) const
 
     bool dormant = 
            fs &&
-           fs->getFrameNumber() - _lastTraversalFrame > std::max(_minExpiryFrames, minMinExpiryFrames) &&
+           fs->getFrameNumber() - _lastTraversalFrame > osg::maximum(_minExpiryFrames, minMinExpiryFrames) &&
            fs->getReferenceTime() - _lastTraversalTime > _minExpiryTime;
     return dormant;
 }
@@ -345,25 +348,32 @@ TileNode::shouldSubDivide(TerrainCuller* culler, const SelectionInfo& selectionI
     unsigned currLOD = _key.getLOD();
 
     EngineContext* context = culler->getEngineContext();
+    
+    if (currLOD < selectionInfo.getNumLODs() && currLOD != selectionInfo.getNumLODs()-1)
+    {
+        // In PSOS mode, subdivide when the on-screen size of a tile exceeds the maximum
+        // allowable on-screen tile size in pixels.
+        if (context->getOptions().rangeMode() == osg::LOD::PIXEL_SIZE_ON_SCREEN)
+        {
+            float tileSizeInPixels = -1.0;
 
-    if (context->getOptions().rangeMode() == osg::LOD::PIXEL_SIZE_ON_SCREEN)
-    {
-        float pixelSize = -1.0;
-        if (context->getEngine()->getComputeRangeCallback())
-        {
-            pixelSize = (*context->getEngine()->getComputeRangeCallback())(this, *culler->_cv);
-        }    
-        if (pixelSize <= 0.0)
-        {
-            pixelSize = culler->clampedPixelSize(getBound());
+            if (context->getEngine()->getComputeRangeCallback())
+            {
+                tileSizeInPixels = (*context->getEngine()->getComputeRangeCallback())(this, *culler->_cv);
+            }    
+
+            if (tileSizeInPixels <= 0.0)
+            {
+                tileSizeInPixels = _surface->getPixelSizeOnScreen(culler);
+            }
+        
+            return (tileSizeInPixels > context->getOptions().tilePixelSize().get());
         }
-        return (pixelSize > context->getOptions().tilePixelSize().get() * 4);
-    }
-    else
-    {
-        if (currLOD < selectionInfo.getNumLODs() && currLOD != selectionInfo.getNumLODs()-1)
+
+        // In DISTANCE-TO-EYE mode, use the visibility ranges precomputed in the SelectionInfo.
+        else
         {
-            float range = selectionInfo.getLOD(currLOD+1)._visibilityRange;
+            float range = context->getSelectionInfo().getRange(_subdivideTestKey);
 #if 1
             // slightly slower than the alternate block below, but supports a user overriding
             // CullVisitor::getDistanceToViewPoint -gw
@@ -371,7 +381,7 @@ TileNode::shouldSubDivide(TerrainCuller* culler, const SelectionInfo& selectionI
 #else
             return _surface->anyChildBoxIntersectsSphere(
                 culler->getViewPointLocal(), 
-                range*range/culler->getLODScale());
+                range*range / culler->getLODScale());
 #endif
         }
     }                 
@@ -379,16 +389,19 @@ TileNode::shouldSubDivide(TerrainCuller* culler, const SelectionInfo& selectionI
 }
 
 bool
-TileNode::cull_stealth(TerrainCuller* culler)
+TileNode::cull_spy(TerrainCuller* culler)
 {
     bool visible = false;
 
     EngineContext* context = culler->getEngineContext();
 
-    // Shows all culled tiles, good for testing culling
+    // Shows all culled tiles. All this does is traverse the terrain
+    // and add any tile that's been "legitimately" culled (i.e. culled
+    // by a non-spy traversal) in the last 2 frames. We use this
+    // trick to spy on another camera.
     unsigned frame = culler->getFrameStamp()->getFrameNumber();
 
-    if ( frame - _lastAcceptSurfaceFrame < 2u )
+    if ( frame - _surface->getLastFramePassedCull() < 2u)
     {
         _surface->accept( *culler );
     }
@@ -429,10 +442,14 @@ TileNode::cull(TerrainCuller* culler)
     // whether to accept the current surface node and not the children.
     bool canAcceptSurface = false;
     
-    // Don't create children in progressive mode until content is in place
-    if ( _dirty && context->getOptions().progressive() == true )
+    // Don't load data in progressive mode until the parent is up to date
+    if (context->getOptions().progressive() == true)
     {
-        canCreateChildren = false;
+        TileNode* parent = getParentTile();
+        if ( parent && parent->isDirty() )
+        {
+            canLoadData = false;
+        }
     }
     
     // If this is an inherit-viewpoint camera, we don't need it to invoke subdivision
@@ -495,7 +512,6 @@ TileNode::cull(TerrainCuller* culler)
     if ( canAcceptSurface )
     {
         _surface->accept( *culler );
-        _lastAcceptSurfaceFrame.exchange( culler->getFrameStamp()->getFrameNumber() );
     }
 
     // If this tile is marked dirty, try loading data.
@@ -528,13 +544,13 @@ TileNode::accept_cull(TerrainCuller* culler)
 }
 
 bool
-TileNode::accept_cull_stealth(TerrainCuller* culler)
+TileNode::accept_cull_spy(TerrainCuller* culler)
 {
     bool visible = false;
     
     if (culler)
     {
-        visible = cull_stealth( culler );
+        visible = cull_spy( culler );
     }
 
     return visible;
@@ -550,9 +566,9 @@ TileNode::traverse(osg::NodeVisitor& nv)
         {
             TerrainCuller* culler = dynamic_cast<TerrainCuller*>(&nv);
         
-            if (VisitorData::isSet(culler->getParent(), "osgEarth.Stealth"))
+            if (culler->_isSpy)
             {
-                accept_cull_stealth( culler );
+                accept_cull_spy( culler );
             }
             else
             {
@@ -679,7 +695,7 @@ TileNode::merge(const TerrainTileModel* model, const RenderBindings& bindings)
                     pass->samplers()[SamplerBinding::COLOR]._matrix = *model->getMatrix();
 
                     // Handle an RTT image layer:
-                    if (model->getImageLayer() && model->getImageLayer()->createTextureSupported())
+                    if (model->getImageLayer() && model->getImageLayer()->useCreateTexture())
                     {
                         // Check the texture's userdata for a Node. If there is one there,
                         // render it to the texture using the Tile Rasterizer service.
@@ -985,7 +1001,8 @@ TileNode::passInLegalRange(const RenderingPass& pass) const
 {
     return 
         pass.terrainLayer() == 0L ||
-        pass.terrainLayer()->isKeyInLegalRange(getKey());
+        pass.terrainLayer()->isKeyInVisualRange(getKey());
+        //pass.terrainLayer()->isKeyInLegalRange(getKey());
 }
 
 void
@@ -1021,7 +1038,7 @@ TileNode::loadSync()
 {
     osg::ref_ptr<LoadTileData> loadTileData = new LoadTileData(this, _context.get());
     loadTileData->setEnableCancelation(false);
-    loadTileData->invoke();
+    loadTileData->invoke(0L);
     loadTileData->apply(0L);
 }
 

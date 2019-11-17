@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2016 Pelican Mapping
+* Copyright 2019 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -95,7 +95,9 @@ namespace
             "a :",                 "toggle viewpoint arcing",
             "q :",                 "toggle throwing",
             "k :",                 "toggle collision",
-            "L :",                 "toggle log depth buffer"
+            "L :",                 "toggle log depth buffer",
+            "z :",                 "toggle zoom to mouse pointer",
+            "arrows :",            "adjust tether offset",
         };
 
         Grid* g = new Grid();
@@ -217,6 +219,27 @@ namespace
         char _key;
         osg::Group* _group;
         bool _installed;
+    };
+
+    /**
+    * Toggles whether to zoom towards the mouse pointer.
+    */
+    struct ToggleZoomToMouse : public osgGA::GUIEventHandler 
+    {
+        ToggleZoomToMouse(char key, EarthManipulator* manip ) : _key(key), _manip(manip) { }
+
+        bool handle( const osgGA::GUIEventAdapter& ea, osgGA::GUIActionAdapter& aa )
+        {
+            if ( ea.getEventType() == ea.KEYDOWN && ea.getKey() == _key)
+            {
+                _manip->getSettings()->setZoomToMouse(!_manip->getSettings()->getZoomToMouse());
+                return true;
+            }
+            return false;
+        }
+
+        char _key;
+        osg::observer_ptr<EarthManipulator> _manip;
     };
 
     /**
@@ -363,15 +386,15 @@ namespace
                 EarthManipulator::TetherMode mode = _manip->getSettings()->getTetherMode();
                 if ( mode == _manip->TETHER_CENTER ) {
                     _manip->getSettings()->setTetherMode( _manip->TETHER_CENTER_AND_HEADING );
-                    OE_NOTICE << "Tether mode = TETHER_CENTER_AND_HEADING\n";
+                    OE_NOTICE << "Tether mode = TETHER_CENTER_AND_HEADING" << std::endl;
                 }
                 else if ( mode == _manip->TETHER_CENTER_AND_HEADING ) {
                     _manip->getSettings()->setTetherMode( _manip->TETHER_CENTER_AND_ROTATION );
-                    OE_NOTICE << "Tether mode = TETHER_CENTER_AND_ROTATION\n";
+                    OE_NOTICE << "Tether mode = TETHER_CENTER_AND_ROTATION" << std::endl;
                 }
                 else {
                     _manip->getSettings()->setTetherMode( _manip->TETHER_CENTER );
-                    OE_NOTICE << "Tether mode = CENTER\n";
+                    OE_NOTICE << "Tether mode = CENTER" << std::endl;
                 }
 
                 aa.requestRedraw();
@@ -562,15 +585,15 @@ namespace
     struct Simulator : public osgGA::GUIEventHandler
     {
         Simulator( osg::Group* root, EarthManipulator* manip, MapNode* mapnode, osg::Node* model, const char* name, char key)
-            : _manip(manip), _mapnode(mapnode), _model(model), _name(name), _key(key)
+            : _manip(manip), _mapnode(mapnode), _model(model), _name(name), _key(key), _varyAngles(false)
         {
             if ( !model )
             { 
                 _model = AnnotationUtils::createHemisphere(250.0, osg::Vec4(1,.7,.4,1));
             }
 
-            _geo = new GeoPositionNode();
-            _geo->getPositionAttitudeTransform()->addChild(_model);
+            _attachPoint = new osg::Group();
+            _attachPoint->addChild(_model);
 
             Style style;
             TextSymbol* text = style.getOrCreate<TextSymbol>();
@@ -581,8 +604,10 @@ namespace
             _label = new LabelNode(_name, style);
             _label->setDynamic( true );
             _label->setHorizonCulling(false);
+            _attachPoint->addChild(_label);
 
-            _geo->getPositionAttitudeTransform()->addChild(_label);
+            _geo = new GeoPositionNode();
+            _geo->getPositionAttitudeTransform()->addChild(_attachPoint);
 
             mapnode->addChild(_geo.get());
         }
@@ -596,8 +621,15 @@ namespace
                 GeoPoint p = _start.interpolate(_end, t);
                 double bearing = GeoMath::bearing(_start.y(), _start.x(), p.y(), p.x());
 
-                float a = sin(t0*0.2);
                 float pitch = 0.0;
+
+                if (_varyAngles)
+                {
+                    float a = sin(t0*0.2);
+                    float b = 0.4 * cos(t0*0.5);
+                    bearing += a;
+                    pitch += b;
+                }
 
                 _geo->setPosition(p);
 
@@ -610,8 +642,7 @@ namespace
                 if ( ea.getKey() == _key )
                 {                                
                     Viewpoint vp = _manip->getViewpoint();
-                    //vp.setNode( _pat.get() );
-                    vp.setNode(_model);
+                    vp.setNode(_label);
                     vp.range() = 25000.0;
                     vp.pitch() = -45.0;
                     _manip->setViewpoint(vp, 2.0);
@@ -630,8 +661,9 @@ namespace
         osg::Node*                         _model;
         float                              _heading;
         float                              _pitch;
-
         osg::ref_ptr<GeoPositionNode>      _geo;
+        osg::Group*                        _attachPoint;
+        bool                               _varyAngles;
     };
 
     /**
@@ -779,12 +811,13 @@ int main(int argc, char** argv)
     Simulator* sim1 = new Simulator(sims, manip, mapNode, model.get(), "Thing 1", '8');
     sim1->_start = GeoPoint(wgs84, 45.0, 55.0, 10000);
     sim1->_end = GeoPoint(wgs84, -45, -55.0, 10000);
+    sim1->_varyAngles = false;
     viewer.addEventHandler(sim1);
 
     Simulator* sim2 = new Simulator(sims, manip, mapNode, model.get(), "Thing 2", '9');
-    sim2->_name = "Thing 2";
     sim2->_start = GeoPoint(wgs84, 45.0, 54.0, 10000);
     sim2->_end = GeoPoint(wgs84, -44.0, -54.0, 10000);
+    sim2->_varyAngles = true;
     viewer.addEventHandler(sim2);
 
     manip->getSettings()->getBreakTetherActions().push_back( EarthManipulator::ACTION_GOTO );    
@@ -827,6 +860,7 @@ int main(int argc, char** argv)
     viewer.addEventHandler(new ToggleLDB('L'));
     viewer.addEventHandler(new ToggleSSL(sims, ')'));
     viewer.addEventHandler(new FitViewToPoints('j', manip, mapNode->getMapSRS()));
+    viewer.addEventHandler(new ToggleZoomToMouse('z', manip));
     
     CalculateWindowCoords* calc = new CalculateWindowCoords('W', manip, sim1);
     viewer.addEventHandler(calc);

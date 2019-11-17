@@ -1,6 +1,6 @@
 /* -*-c++-*- */
-/* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2016 Pelican Mapping
+/* osgEarth - Geospatial SDK for OpenSceneGraph
+ * Copyright 2019 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -393,13 +393,11 @@ ShaderFactory::createMains(const ShaderComp::FunctionLocationMap&    functions,
 
 
     //.................................................................................
-    
-#if !defined(OSG_GL_FIXED_FUNCTION_AVAILABLE)
-
+  
+#if OSG_VERSION_LESS_THAN(3,5,8)
     // for all stages EXCEPT vertex, we will switch over to the OSG aliased
-    // matrix uniforms. Why except vertex? OSG [3.4] does something internally to
-    // convert these for hte VERTEX shader stage only... and if you try to 
-    // use them anyway, they won't work :(
+    // matrix uniforms. Why except vertex? OSG<3.5.8 only replaces these
+    // in the vertex shader and not other stages.
 
     gl_ModelViewMatrix           = "osg_ModelViewMatrix",
     gl_ProjectionMatrix          = "osg_ProjectionMatrix",
@@ -413,7 +411,6 @@ ShaderFactory::createMains(const ShaderComp::FunctionLocationMap&    functions,
         "uniform mat4 osg_ProjectionMatrix;\n"
         "uniform mat3 osg_NormalMatrix;\n";
 #endif
-
 
     if ( hasTCS )
     {
@@ -531,14 +528,7 @@ ShaderFactory::createMains(const ShaderComp::FunctionLocationMap&    functions,
         for(std::set<std::string>::const_iterator i = types.begin(); i != types.end(); ++i)
         {
             buf << *i << " VP_Interpolate3(" << *i << "," << *i << "," << *i << ");\n";
-        }       
-
-        //buf <<
-        //    "\n// TES user-supplied interpolators: \n"
-        //    "float VP_Interpolate3(float,float,float); \n"
-        //    "vec2  VP_Interpolate3(vec2,vec2,vec2); \n"
-        //    "vec3  VP_Interpolate3(vec3,vec3,vec3); \n"
-        //    "vec4  VP_Interpolate3(vec4,vec4,vec4); \n";
+        }
 
 #if 0
         buf <<
@@ -714,7 +704,7 @@ ShaderFactory::createMains(const ShaderComp::FunctionLocationMap&    functions,
 
         addExtensionsToBuffer(buf, in_extensions);
 
-        buf << glMatrixUniforms << "\n";
+        //buf << glMatrixUniforms << "\n";
 
         if ( hasVS || hasTCS || hasTES )
         {

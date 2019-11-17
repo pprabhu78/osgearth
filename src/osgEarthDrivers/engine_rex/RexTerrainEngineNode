@@ -1,5 +1,5 @@
 /* -*-c++-*- */
-/* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
+/* osgEarth - Geospatial SDK for OpenSceneGraph
  * Copyright 2008-2014 Pelican Mapping
  * http://osgearth.org
  *
@@ -67,7 +67,8 @@ namespace osgEarth { namespace Drivers { namespace RexTerrainEngine
         osg::Node* createTile(
             const TerrainTileModel* model,
             int createTileFlags,
-            unsigned referenceLOD);
+            unsigned referenceLOD,
+            const TileKey& area);
         
         //! Forces regeneration of tiles in the given region.
         void invalidateRegion(
@@ -136,6 +137,9 @@ namespace osgEarth { namespace Drivers { namespace RexTerrainEngine
         //! Adds a Layer to the cachedLayerExtents vector.
         void cacheLayerExtentInMapSRS(Layer* layer); 
 
+        //! Recompute all cached layer extents
+        void cacheAllLayerExtentsInMapSRS();
+
         //! computes the heightfield sample size required to match the vertices at the highest
         //! level of detail in rex if a tile key was requested at the given level of detail.
         unsigned int computeSampleSize(unsigned int levelOfDetail);
@@ -149,7 +153,8 @@ namespace osgEarth { namespace Drivers { namespace RexTerrainEngine
         bool _stateUpdateRequired;
 
         // extents of each layer, in the Map's SRS. UID = vector index (for speed)
-        LayerExtentVector _cachedLayerExtents; 
+        LayerExtentVector _cachedLayerExtents;
+        bool _cachedLayerExtentsComputeRequired;
 
         // node registry is shared across all threads.
         osg::ref_ptr<TileNodeRegistry> _liveTiles; // tiles in the scene graph.
@@ -157,6 +162,7 @@ namespace osgEarth { namespace Drivers { namespace RexTerrainEngine
      
         EngineContext* getEngineContext() const { return _engineContext.get(); }
         osg::ref_ptr< EngineContext > _engineContext;
+        friend class EngineContext;
 
         RenderBindings _renderBindings;
         osg::ref_ptr<GeometryPool> _geometryPool;
@@ -165,6 +171,7 @@ namespace osgEarth { namespace Drivers { namespace RexTerrainEngine
         TileRasterizer* _rasterizer;
         
         osg::ref_ptr<osg::Group> _terrain;
+        bool _morphingSupported;
 
         bool _renderModelUpdateRequired;
 
@@ -174,8 +181,6 @@ namespace osgEarth { namespace Drivers { namespace RexTerrainEngine
 
         osg::ref_ptr<osg::StateSet> _surfaceStateSet;
         osg::ref_ptr<osg::StateSet> _imageLayerStateSet;
-
-        osg::ref_ptr<ModifyBoundingBoxCallback> _modifyBBoxCallback;
     };
 
 } } } // namespace osgEarth::Drivers::RexTerrainEngine

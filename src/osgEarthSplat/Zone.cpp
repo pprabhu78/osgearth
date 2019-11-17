@@ -1,6 +1,6 @@
 /* -*-c++-*- */
-/* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2016 Pelican Mapping
+/* osgEarth - Geospatial SDK for OpenSceneGraph
+ * Copyright 2019 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -125,13 +125,25 @@ Zone::contains(const osg::Vec3& point) const
     return false;
 }
 
-//osg::StateSet*
-//Zone::getOrCreateStateSet() 
-//{
-//    if ( !_stateSet.valid() )
-//        _stateSet = new osg::StateSet();
-//    return _stateSet.get();
-//}
+void
+Zone::resizeGLObjectBuffers(unsigned maxSize)
+{
+    if (_groundCover.valid())
+        _groundCover->resizeGLObjectBuffers(maxSize);
+
+    if (_surface.valid())
+        _surface->resizeGLObjectBuffers(maxSize);
+}
+
+void
+Zone::releaseGLObjects(osg::State* state) const
+{
+    if (_groundCover.valid())
+        _groundCover->releaseGLObjects(state);
+
+    if (_surface.valid())
+        _surface->releaseGLObjects(state);
+}
 
 //........................................................................
 

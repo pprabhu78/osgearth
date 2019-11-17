@@ -1,6 +1,6 @@
 /* -*-c++-*- */
-/* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2016 Pelican Mapping
+/* osgEarth - Geospatial SDK for OpenSceneGraph
+ * Copyright 2019 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -182,7 +182,9 @@ DepthOffsetAdapter::setGraph(osg::Node* graph)
 
         s->addUniform( _paramsUniform.get() );
         
-        shaders.load(VirtualProgram::getOrCreate(s), shaders.DepthOffsetVertex);    
+        VirtualProgram* vp = VirtualProgram::getOrCreate(s);
+        vp->setName("DepthOffset");
+        shaders.load(vp, shaders.DepthOffsetVertex);    
 
         // disable depth writes
         s->setAttributeAndModes(new osg::Depth(osg::Depth::LEQUAL, 0.0, 1.0, false), 1);
@@ -239,7 +241,7 @@ DepthOffsetAdapter::recalculate()
         {
             GeometryAnalysisVisitor v;
             _graph->accept( v );
-            float maxLen = std::max(1.0f, sqrtf(v._segmentAnalyzer._maxLen2));
+            float maxLen = osg::maximum(1.0f, sqrtf(v._segmentAnalyzer._maxLen2));
             _options.minRange() = sqrtf(maxLen) * 19.0f;
             _dirty = false;
             OE_TEST << LC << "Recalcluated." << std::endl;

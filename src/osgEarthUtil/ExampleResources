@@ -1,6 +1,6 @@
 /* -*-c++-*- */
-/* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2016 Pelican Mapping
+/* osgEarth - Geospatial SDK for OpenSceneGraph
+* Copyright 2019 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -178,6 +178,7 @@ namespace osgEarth { namespace Util
 #define OE_UI_HANDLER(X) \
     struct X : public osgEarth::Util::Controls::ControlEventHandler { \
         App& _app; X(App& app):_app(app) { } \
-        void onValueChanged(osgEarth::Util::Controls::Control*) { _app. X (); } }
+        void onValueChanged(osgEarth::Util::Controls::Control*) { _app. X (); } \
+        void onClick(osgEarth::Util::Controls::Control*) { _app. X (); } }
 
 #endif // OSGEARTH_UTIL_EXAMPLE_RESOURCES_H

@@ -1,6 +1,6 @@
 /* -*-c++-*- */
-/* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2016 Pelican Mapping
+/* osgEarth - Geospatial SDK for OpenSceneGraph
+ * Copyright 2019 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -299,7 +299,7 @@ SubstituteModelFilter::process(const FeatureList&           features,
 
                     scaleMatrix = osg::Matrix::scale( scaleVec );
 
-                    if ( modelSymbol->heading().isSet() )
+                    if ( modelSymbol && modelSymbol->heading().isSet() )
                     {
                         float heading = input->eval(headingEx, &context);
                         rotationMatrix.makeRotate( osg::Quat(osg::DegreesToRadians(heading), osg::Vec3(0,0,1)) );

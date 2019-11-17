@@ -1,6 +1,6 @@
 /* -*-c++-*- */
-/* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2016 Pelican Mapping
+/* osgEarth - Geospatial SDK for OpenSceneGraph
+ * Copyright 2019 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -20,6 +20,7 @@
 #include <osgEarth/VirtualProgram>
 #include <osgEarth/Lighting>
 #include <osgEarth/Shaders>
+#include <osgEarth/Registry>
 #include <osg/Version>
 #include <osgText/Font>
 #include <sstream>
@@ -213,6 +214,7 @@ Text::createStateSet()
     
     // osgEarth: add shaders
     VirtualProgram* vp = VirtualProgram::getOrCreate(stateset.get());
+    vp->setName("osgEarth::Text");
     osgEarth::Shaders coreShaders;
     coreShaders.load(vp, coreShaders.TextVertex);
     coreShaders.load(vp, coreShaders.TextFragment);
@@ -242,6 +244,7 @@ Text::setFont(osg::ref_ptr<osgText::Font> font)
         if (newFontStateSet && VirtualProgram::get(newFontStateSet) == 0L)
         {
             VirtualProgram* vp = VirtualProgram::getOrCreate(newFontStateSet);
+            vp->setName("osgEarth::Text");
             osgEarth::Shaders coreShaders;
             coreShaders.load(vp, coreShaders.TextLegacy);
 #if defined(OSG_GL3_AVAILABLE) && !defined(OSG_GL2_AVAILABLE) && !defined(OSG_GL1_AVAILABLE)

@@ -1,6 +1,6 @@
 /* -*-c++-*- */
-/* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2016 Pelican Mapping
+/* osgEarth - Geospatial SDK for OpenSceneGraph
+ * Copyright 2019 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -64,6 +64,13 @@ namespace
             em->convertXYZToLatLongHeight(
                 points[i].x(), points[i].y(), points[i].z(),
                 lat, lon, alt );
+
+            // deal with bug in OSG 3.4.x in which convertXYZToLatLongHeight can return
+            // NANs when converting from (0,0,0) with a spherical ellipsoid -gw 2/5/2019
+            if (osg::isNaN(lon)) lon = 0.0;
+            if (osg::isNaN(lat)) lat = 0.0;
+            if (osg::isNaN(alt)) alt = 0.0;
+
             points[i].set( osg::RadiansToDegrees(lon), osg::RadiansToDegrees(lat), alt );
         }
     }
@@ -178,9 +185,16 @@ SpatialReference::create(const Key& key)
         key.horizLower == "epsg:102113")
     {
         // note the use of nadgrids=@null (see http://proj.maptools.org/faq.html)
-        srs = createFromPROJ4(
-            "+proj=merc +a=6378137 +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0 +y_0=0 +k=1.0 +units=m +nadgrids=@null +towgs84=0,0,0,0,0,0,0 +wktext +no_defs",
+	// note, after Proj 5.1 webmerc alias was added and GDAL 3.X requires Proj 6
+#if (GDAL_VERSION_MAJOR >= 3)
+		srs = createFromPROJ4(
+            "+proj=webmerc +a=6378137 +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0 +y_0=0 +k=1.0 +units=m +nadgrids=@null +towgs84=0,0,0,0,0,0,0 +wktext +no_defs",
             "Spherical Mercator" );
+#else
+		srs = createFromPROJ4(
+			"+proj=merc +a=6378137 +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0 +y_0=0 +k=1.0 +units=m +nadgrids=@null +towgs84=0,0,0,0,0,0,0 +wktext +no_defs",
+			"Spherical Mercator");
+#endif
     }
 
     // ellipsoidal ("world") mercator:
@@ -373,12 +387,21 @@ _ellipsoidId(0u)
 }
 
 SpatialReference::SpatialReference(void* handle, bool ownsHandle) :
-osg::Referenced( true ),
-_initialized   ( false ),
-_handle        ( handle ),
-_owns_handle   ( ownsHandle ),
-_is_ltp        ( false ),
-_is_geocentric ( false )
+osg::Referenced ( true ),
+_initialized    ( false ),
+_handle         ( handle ),
+_owns_handle    ( ownsHandle ),
+_is_geographic  ( false ),
+_is_geocentric  ( false ),
+_is_mercator    ( false ),
+_is_north_polar ( false ), 
+_is_south_polar ( false ),
+_is_cube        ( false ),
+_is_contiguous  ( false ),
+_is_user_defined( false ),
+_is_ltp         ( false ),
+_is_spherical_mercator( false ),
+_ellipsoidId(0u)
 {
     //nop
 }
@@ -1370,10 +1393,10 @@ SpatialReference::transformExtentToMBR(const SpatialReference* to_srs,
 
         for (unsigned int i = 0; i < v.size(); i++)
         {
-            in_out_xmin = std::min( v[i].x(), in_out_xmin );
-            in_out_ymin = std::min( v[i].y(), in_out_ymin );
-            in_out_xmax = std::max( v[i].x(), in_out_xmax );
-            in_out_ymax = std::max( v[i].y(), in_out_ymax );
+            in_out_xmin = osg::minimum( v[i].x(), in_out_xmin );
+            in_out_ymin = osg::minimum( v[i].y(), in_out_ymin );
+            in_out_xmax = osg::maximum( v[i].x(), in_out_xmax );
+            in_out_ymax = osg::maximum( v[i].y(), in_out_ymax );
         }
 
         if ( swapXValues )

@@ -1,6 +1,6 @@
 /* -*-c++-*- */
-/* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2016 Pelican Mapping
+/* osgEarth - Geospatial SDK for OpenSceneGraph
+* Copyright 2019 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -69,6 +69,7 @@ SimpleOceanLayer::init()
     ss->setDataVariance(ss->DYNAMIC);
     
     VirtualProgram* vp = VirtualProgram::getOrCreate(ss);
+    vp->setName("SimpleOceanLayer");
     Shaders shaders;
     shaders.load(vp, shaders.SimpleOceanLayer_Vertex);
     shaders.load(vp, shaders.SimpleOceanLayer_Fragment);
@@ -89,11 +90,11 @@ SimpleOceanLayer::init()
 
     // Material.
     osg::Material* m = new MaterialGL3();
-    m->setAmbient(m->FRONT, osg::Vec4(0, 0, 0, 1));
+    m->setAmbient(m->FRONT, osg::Vec4(1, 1, 1, 1));
     m->setDiffuse(m->FRONT, osg::Vec4(1, 1, 1, 1));
-    m->setSpecular(m->FRONT, osg::Vec4(1, 1, 1, 1)); //0.2, 0.2, 0.2, 1));
+    m->setSpecular(m->FRONT, osg::Vec4(1, 1, 1, 1));
     m->setEmission(m->FRONT, osg::Vec4(0, 0, 0, 1));
-    m->setShininess(m->FRONT, 100.0);
+    m->setShininess(m->FRONT, 32.0);
     ss->setAttributeAndModes(m, 1);
     MaterialCallback().operator()(m, 0L);
     
@@ -105,6 +106,8 @@ SimpleOceanLayer::init()
 void
 SimpleOceanLayer::setTerrainResources(TerrainResources* res)
 {
+    VisibleLayer::setTerrainResources(res);
+
     if (options().texture().isSet()) // texture
     {
         if (res->reserveTextureImageUnitForLayer(_texReservation, this) == false)
@@ -222,7 +225,7 @@ void
 SimpleOceanLayer::modifyTileBoundingBox(const TileKey& key, osg::BoundingBox& box) const
 {
     // Force the max Z to be at least sea level, to satisfy the culling pass
-    box.zMax() = std::max(box.zMax(), (osg::BoundingBox::value_type)0.0);
+    box.zMax() = osg::maximum(box.zMax(), (osg::BoundingBox::value_type)0.0);
 }
 
 void

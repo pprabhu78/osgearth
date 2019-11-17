@@ -1,6 +1,6 @@
 /* -*-c++-*- */
-/* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2016 Pelican Mapping
+/* osgEarth - Geospatial SDK for OpenSceneGraph
+* Copyright 2019 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -33,7 +33,7 @@
 #include <osgEarth/TerrainEngineNode>
 #include <osgEarth/NodeUtils>
 #include <osgEarth/GLUtils>
-
+#include <osgEarth/CullingUtils>
 
 #include <osgEarthDrivers/kml/KML>
 
@@ -152,8 +152,8 @@ namespace
         std::string _name;
         ToggleDefine(osg::StateSet* ss, const std::string& name) : _ss(ss), _name(name) { }
         void onValueChanged(Control* c, bool value) {
-            if (value) _ss->setDefine(_name);
-            else _ss->removeDefine(_name);
+            if (value) _ss->setDefine(_name, osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE);
+            else _ss->setDefine(_name, osg::StateAttribute::OFF | osg::StateAttribute::OVERRIDE); //(_name);
         }
     };
 }
@@ -351,6 +351,15 @@ MapNodeHelper::load(osg::ArgumentParser&   args,
     if ( !views.empty() )
     {
         parse( mapNode.get(), args, views.front(), root, userContainer );
+        
+        float lodscale;
+        if (args.read("--lodscale", lodscale))
+        {
+            LODScaleGroup* g = new LODScaleGroup();
+            g->setLODScaleFactor(osg::maximum(lodscale, 0.0001f));
+            osgEarth::insertGroup(g, mapNode->getParent(0));
+            OE_NOTICE << "LOD Scale set to: " << lodscale << std::endl;
+        }
     }
 
     // configures each view with some stock goodies
@@ -731,6 +740,19 @@ namespace
         {
             DateTime d = _sky->getDateTime();
             _sky->setDateTime(DateTime(d.year(), d.month(), d.day(), value));
+
+            d = _sky->getDateTime();
+        }
+    };
+
+    struct SkyDaysSlider : public ui::ControlEventHandler
+    {
+        SkyDaysSlider(SkyNode* sky) : _sky(sky)  { }
+        SkyNode* _sky;
+        void onValueChanged(ui::Control* control, float value )
+        {
+            DateTime d = _sky->getDateTime();
+            _sky->setDateTime(DateTime(d.year(), d.month(), floor(value), d.hours()));
         }
     };
 
@@ -743,10 +765,10 @@ namespace
         ui::LabelControl* _label;
         void onValueChanged(ui::Control* control, float value )
         {
-            int m = std::min((int)value, 11);
+            int m = 1 + osg::minimum((int)value, 11);
             DateTime d = _sky->getDateTime();
             _sky->setDateTime(DateTime(d.year(), m, d.day(), d.hours()));
-            _label->setText(s_month[m]);
+            _label->setText(s_month[m-1]);
         }
     };
 
@@ -794,6 +816,13 @@ ui::Control* SkyControlFactory::create(SkyNode* sky)
         skyHoursSlider->setHorizFill( true, 250 );
         skyHoursSlider->addEventHandler( new SkyHoursSlider(sky) );
         grid->setControl(2, r, new ui::LabelControl(skyHoursSlider) );
+
+        r++;
+        grid->setControl( 0, r, new ui::LabelControl("Day: ", 16) );
+        ui::HSliderControl* skyDaySlider = grid->setControl(1, r, new ui::HSliderControl( 1, 31, dt.hours() ));
+        skyDaySlider->setHorizFill( true, 250 );
+        skyDaySlider->addEventHandler( new SkyDaysSlider(sky) );
+        grid->setControl(2, r, new ui::LabelControl(skyDaySlider) );
 
         ++r;
         grid->setControl( 0, r, new ui::LabelControl("Month: ", 16) );

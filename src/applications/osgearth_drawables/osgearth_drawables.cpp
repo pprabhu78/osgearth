@@ -1,6 +1,6 @@
 /* -*-c++-*- */
-/* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2016 Pelican Mapping
+/* osgEarth - Geospatial SDK for OpenSceneGraph
+* Copyright 2019 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -48,6 +48,7 @@ void addVerts(LineDrawable* line, double x, double y)
     line->pushVertex(osg::Vec3(x + 5, 0, y + 10));
     line->pushVertex(osg::Vec3(x, 0, y + 10));
     line->pushVertex(osg::Vec3(x, 0, y + 5));
+    line->pushVertex(osg::Vec3(x + 5, 0, y + 5));
     line->finish();
 }
 
@@ -102,6 +103,7 @@ osg::Node* makeGeometryForImport(double x, double y)
     verts->push_back(osg::Vec3(x + 5, 0, y + 10));
     verts->push_back(osg::Vec3(x, 0, y + 10));
     verts->push_back(osg::Vec3(x, 0, y + 5));
+    verts->push_back(osg::Vec3(x + 5, 0, y + 5));
     geom->setVertexArray(verts);    
     osg::Vec4Array* colors = new osg::Vec4Array(1);
     (*colors)[0].set(1,1,1,1);
@@ -135,7 +137,7 @@ osg::Node* createDrawables()
     // MapNode installs one automatically, but we're not using MapNode
     // in this example.
     osg::Group* group = new osg::Group();
-    group->addCullCallback(new InstallViewportSizeUniform());
+    group->addCullCallback(new InstallCameraUniform());
 
     float x = 10;
     float y = 10;

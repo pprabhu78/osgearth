@@ -1,6 +1,6 @@
 /* -*-c++-*- */
-/* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2016 Pelican Mapping
+/* osgEarth - Geospatial SDK for OpenSceneGraph
+ * Copyright 2019 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -92,6 +92,7 @@ ImageLayerOptions::fromConfig(const Config& conf)
     conf.get( "shared",         _shared );
     conf.get( "coverage",       _coverage );
     conf.get( "feather_pixels", _featherPixels);
+    conf.get( "altitude",       _altitude );
 
     if ( conf.hasValue( "transparent_color" ) )
         _transparentColor = stringToColor( conf.value( "transparent_color" ), osg::Vec4ub(0,0,0,0));
@@ -134,6 +135,7 @@ ImageLayerOptions::getConfig() const
     conf.set( "shared",         _shared );
     conf.set( "coverage",       _coverage );
     conf.set( "feather_pixels", _featherPixels );
+    conf.set( "altitude",       _altitude );
 
     if (_transparentColor.isSet())
         conf.set("transparent_color", colorToString( _transparentColor.value()));
@@ -333,7 +335,7 @@ ImageLayer::open()
 
     // If we are using createTexture to make image tiles,
     // we don't need to load a tile source plugin.
-    if (createTextureSupported())
+    if (useCreateTexture())
     {
         setTileSourceExpected(false);
     }
@@ -346,8 +348,39 @@ ImageLayer::init()
 {
     TerrainLayer::init();
 
+    _useCreateTexture = false;
+
     // image layers render as a terrain texture.
     setRenderType(RENDERTYPE_TERRAIN_SURFACE);
+
+    if (options().altitude().isSet())
+    {
+        setAltitude(options().altitude().get());
+    }
+}
+
+void
+ImageLayer::setAltitude(const Distance& value)
+{
+    options().altitude() = value;
+
+    if (value != 0.0)
+    {
+        osg::StateSet* stateSet = getOrCreateStateSet();
+
+        stateSet->addUniform(
+            new osg::Uniform("oe_terrain_altitude", (float)options().altitude()->as(Units::METERS)),
+            osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE);
+
+        stateSet->setMode(GL_CULL_FACE, 0);
+    }
+    else
+    {
+        osg::StateSet* stateSet = getOrCreateStateSet();
+        getOrCreateStateSet()->removeUniform("oe_terrain_altitude");
+        stateSet->removeMode(GL_CULL_FACE);
+    }
+    fireCallback( &ImageLayerCallback::onAltitudeChanged );
 }
 
 void
@@ -358,6 +391,13 @@ ImageLayer::fireCallback(ImageLayerCallback::MethodPtr method)
         ImageLayerCallback* cb = dynamic_cast<ImageLayerCallback*>(i->get());
         if (cb) (cb->*method)( this );
     }
+}
+
+void
+ImageLayer::setUseCreateTexture()
+{
+    _useCreateTexture = true;
+    setTileSourceExpected(false);
 }
 
 bool
@@ -835,16 +875,19 @@ ImageLayer::assembleImage(const TileKey& key, ProgressCallback* progress)
             }
         }
 
-        if ( mosaic.getImages().empty() || retry )
+        // Fail is: a) we got no data and the LOD is greater than zero; or
+        // b) the operation was canceled mid-stream.
+        if ( (mosaic.getImages().empty() && key.getLOD() > 0) || retry)
         {
-            // if we didn't get any data, fail.
+            // if we didn't get any data at LOD>0, fail.
             OE_DEBUG << LC << "Couldn't create image for ImageMosaic " << std::endl;
             return GeoImage::INVALID;
         }
 
-        // We got at least one good tile, so go through the bad ones and try to fall back on
-        // lower resolution data to fill in the gaps. The entire mosaic must be populated or
-        // this qualifies as a bad tile.
+        // We got at least one good tile, OR we got nothing but since the LOD==0 we have to
+        // fall back on a lower resolution.
+        // So now we go through the failed keys and try to fall back on lower resolution data
+        // to fill in the gaps. The entire mosaic must be populated or this qualifies as a bad tile.
         for(std::vector<TileKey>::iterator k = failedKeys.begin(); k != failedKeys.end(); ++k)
         {
             GeoImage image;
@@ -918,8 +961,7 @@ ImageLayer::assembleImage(const TileKey& key, ProgressCallback* progress)
         result = mosaicedImage.reproject( 
             key.getProfile()->getSRS(),
             &key.getExtent(), 
-            options().reprojectedTileSize().get(),
-            options().reprojectedTileSize().get(),
+            getTileSize(), getTileSize(),
             options().driver()->bilinearReprojection().get());
     }
 
@@ -1015,4 +1057,18 @@ ImageLayer::applyTextureCompressionMode(osg::Texture* tex) const
         // use specifically picked a mode.
         tex->setInternalFormatMode(options().textureCompression().get());
     }
+}
+
+
+void
+ImageLayer::modifyTileBoundingBox(const TileKey& key, osg::BoundingBox& box) const
+{
+    if (options().altitude().isSet())
+    {
+        if (options().altitude()->as(Units::METERS) > box.zMax())
+        {
+            box.zMax() = options().altitude()->as(Units::METERS);
+        }
+    }
+    TerrainLayer::modifyTileBoundingBox(key, box);
 }

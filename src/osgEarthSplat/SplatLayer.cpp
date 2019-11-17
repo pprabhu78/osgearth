@@ -1,5 +1,5 @@
 /* -*-c++-*- */
-/* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
+/* osgEarth - Geospatial SDK for OpenSceneGraph
 * Copyright 2008-2012 Pelican Mapping
 * http://osgearth.org
 *
@@ -27,6 +27,7 @@
 #include <osgEarthFeatures/FeatureSourceLayer>
 #include <osgUtil/CullVisitor>
 #include <osg/BlendFunc>
+#include <osg/Drawable>
 #include <cstdlib> // getenv
 
 #define LC "[SplatLayer] " << getName() << ": "
@@ -77,6 +78,54 @@ SplatLayerOptions::fromConfig(const Config& conf)
 
 //........................................................................
 
+void
+SplatLayer::ZoneSelector::operator()(osg::Node* node, osg::NodeVisitor* nv) const
+{
+    if (nv->getVisitorType() == nv->CULL_VISITOR)
+    {
+        osgUtil::CullVisitor* cv = dynamic_cast<osgUtil::CullVisitor*>(nv);
+
+        // If we have zones, select the current one and apply its state set.
+        if (_layer->_zones.size() > 0)
+        {
+            int zoneIndex = 0;
+            osg::Vec3d vp = cv->getViewPoint();
+
+            for(int z=_layer->_zones.size()-1; z > 0 && zoneIndex == 0; --z)
+            {
+                if ( _layer->_zones[z]->contains(vp) )
+                {
+                    zoneIndex = z;
+                }
+            }
+
+            osg::StateSet* zoneStateSet = 0L;
+            Surface* surface = _layer->_zones[zoneIndex]->getSurface();
+            if (surface)
+            {
+                zoneStateSet = surface->getStateSet();
+            }
+
+            if (zoneStateSet == 0L)
+            {
+                OE_FATAL << LC << "ASSERTION FAILURE - zoneStateSet is null\n";
+            }
+            else
+            {            
+                cv->pushStateSet(zoneStateSet);
+                traverse(node, nv);
+                cv->popStateSet();
+            }
+        }
+    }
+    else
+    {
+        traverse(node, nv);
+    }
+}
+
+//........................................................................
+
 SplatLayer::SplatLayer() :
 VisibleLayer(&_optionsConcrete),
 _options(&_optionsConcrete)
@@ -111,6 +160,8 @@ SplatLayer::init()
         osg::ref_ptr<Zone> zone = new Zone(*i);
         _zones.push_back(zone.get());
     }
+
+    setCullCallback(new ZoneSelector(this));
 }
 
 void
@@ -162,6 +213,8 @@ SplatLayer::removedFromMap(const Map* map)
 void
 SplatLayer::setTerrainResources(TerrainResources* res)
 {
+    VisibleLayer::setTerrainResources(res);
+
     if (res)
     {
         // TODO.
@@ -196,42 +249,6 @@ SplatLayer::setTerrainResources(TerrainResources* res)
             buildStateSets();
         }
     }
-}
-
-bool
-SplatLayer::cull(const osgUtil::CullVisitor* cv,
-                 osg::State::StateSetStack& stateSetStack) const
-{
-    if (Layer::cull(cv, stateSetStack) == false)
-        return false;
-
-    // If we have zones, select the current one and apply its state set.
-    if (_zones.size() > 0)
-    {
-        int zoneIndex = 0;
-        osg::Vec3d vp = cv->getViewPoint();
-
-        for(int z=_zones.size()-1; z > 0 && zoneIndex == 0; --z)
-        {
-            if ( _zones[z]->contains(vp) )
-            {
-                zoneIndex = z;
-            }
-        }
-
-        osg::StateSet* zoneStateSet = 0L;
-        Surface* surface = _zones[zoneIndex]->getSurface();
-        if (surface)
-        {
-            zoneStateSet = surface->getStateSet();
-        }
-
-        if (zoneStateSet)
-        {
-            stateSetStack.push_back(zoneStateSet);
-        }
-    }
-    return true;
 }
 
 void
@@ -338,10 +355,39 @@ SplatLayer::buildStateSets()
 
     SplattingShaders splatting;
     VirtualProgram* vp = VirtualProgram::getOrCreate(stateset);
+    vp->setName("SplatLayer");
     splatting.load(vp, splatting.VertModel);
     splatting.load(vp, splatting.VertView);
     splatting.load(vp, splatting.Frag);
     splatting.load(vp, splatting.Util);
 
     OE_DEBUG << LC << "Statesets built!! Ready!\n";
+}
+
+
+void
+SplatLayer::resizeGLObjectBuffers(unsigned maxSize)
+{
+    for (Zones::const_iterator z = _zones.begin(); z != _zones.end(); ++z)
+    {
+        z->get()->resizeGLObjectBuffers(maxSize);
+    }
+
+    VisibleLayer::resizeGLObjectBuffers(maxSize);
+}
+
+void
+SplatLayer::releaseGLObjects(osg::State* state) const
+{
+    for (Zones::const_iterator z = _zones.begin(); z != _zones.end(); ++z)
+    {
+        z->get()->releaseGLObjects(state);
+    }
+
+    VisibleLayer::releaseGLObjects(state);
+
+    // For some unknown reason, release doesn't work on the zone 
+    // texture def data (SplatTextureDef). So we have to recreate
+    // it here.
+    //const_cast<SplatLayer*>(this)->buildStateSets();
 }

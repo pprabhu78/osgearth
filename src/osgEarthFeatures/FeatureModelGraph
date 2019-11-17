@@ -1,6 +1,6 @@
 /* --*-c++-*-- */
-/* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2016 Pelican Mapping
+/* osgEarth - Geospatial SDK for OpenSceneGraph
+ * Copyright 2019 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -184,7 +184,8 @@ namespace osgEarth { namespace Features
             const Style& style);
        
         osg::BoundingSphered getBoundInWorldCoords( 
-            const GeoExtent& extent ) const;
+            const GeoExtent& extent,
+            const Profile* tilingProfile =0L) const;
 
         void buildSubTilePagedLODs(
             unsigned lod, unsigned tileX, unsigned tileY,
@@ -229,6 +230,8 @@ namespace osgEarth { namespace Features
         osg::ref_ptr<FeatureSourceIndex> _featureIndex;
 
         osg::ref_ptr<SceneGraphCallbacks> _sgCallbacks;
+
+        osg::ref_ptr<osgDB::ObjectCache> _nodeCachingImageCache;
 
         void runPreMergeOperations(osg::Node* node);
         void runPostMergeOperations(osg::Node* node);

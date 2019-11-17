@@ -1,6 +1,6 @@
 /* -*-c++-*- */
-/* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2016 Pelican Mapping
+/* osgEarth - Geospatial SDK for OpenSceneGraph
+ * Copyright 2019 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -212,6 +212,17 @@ StateSetCache::~StateSetCache()
 {
     Threading::ScopedMutexLock lock( _mutex );
     prune();
+}
+
+void
+StateSetCache::releaseGLObjects(osg::State* state) const
+{
+    Threading::ScopedMutexLock lock( _mutex );
+    for(StateSetSet::const_iterator i = _stateSetCache.begin(); i != _stateSetCache.end(); ++i)
+    {
+        i->get()->releaseGLObjects(state);
+    }
+    
 }
 
 void

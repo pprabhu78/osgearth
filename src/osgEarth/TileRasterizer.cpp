@@ -1,6 +1,6 @@
 /* -*-c++-*- */
-/* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2016 Pelican Mapping
+/* osgEarth - Geospatial SDK for OpenSceneGraph
+ * Copyright 2019 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -22,6 +22,10 @@
 #include <osgEarth/GLUtils>
 
 #define LC "[TileRasterizer] "
+
+#ifndef GL_ANY_SAMPLES_PASSED
+#define GL_ANY_SAMPLES_PASSED 0x8C2F
+#endif
 
 using namespace osgEarth;
 
@@ -64,7 +68,7 @@ TileRasterizer::TileRasterizer() :
 osg::Camera()
 {
     // active an update traversal.
-    setNumChildrenRequiringUpdateTraversal(1);
+    ADJUST_EVENT_TRAV_COUNT(this, +1);
     setCullingActive(false);
 
     // set up the RTT camera.
@@ -77,6 +81,10 @@ osg::Camera()
     setImplicitBufferAttachmentMask(0, 0);
     setSmallFeatureCullingPixelSize(0.0f);
     setViewMatrix(osg::Matrix::identity());
+
+    // default viewport that is offscreen. This prevents this camera from
+    // clearing the framebuffer when this is not actually drawing anything.
+    setViewport(-1, -1, 1, 1);
 
     osg::StateSet* ss = getOrCreateStateSet();
 
@@ -105,6 +113,7 @@ osg::Camera()
     setReadBuffer(GL_FRONT);
 
     VirtualProgram* vp = VirtualProgram::getOrCreate(ss);
+    vp->setName("TileRasterizer");
     vp->setInheritShaders(false);
 
     // Someday we might need this to undistort rasterizer cells. We'll see
@@ -113,6 +122,9 @@ osg::Camera()
     _distortionU = new osg::Uniform("oe_rasterizer_f", 1.0f);
     ss->addUniform(_distortionU.get());
 #endif
+
+    _samplesQuery.resize(64u);
+    _samplesQuery.setAllElementsTo(INT_MAX);
 }
 
 TileRasterizer::~TileRasterizer()
@@ -149,6 +161,7 @@ TileRasterizer::ReadbackImage::readPixels(
     }
     else
     {
+        // synchronous:
         glReadPixels(x, y, width, height, getPixelFormat(), getDataType(), _data);
     }
 }
@@ -192,7 +205,7 @@ TileRasterizer::accept(osg::NodeVisitor& nv)
 void
 TileRasterizer::traverse(osg::NodeVisitor& nv)
 {
-    if (nv.getVisitorType() == nv.UPDATE_VISITOR)
+    if (nv.getVisitorType() == nv.EVENT_VISITOR)
     {
         Threading::ScopedMutexLock lock(_mutex);
 
@@ -200,7 +213,13 @@ TileRasterizer::traverse(osg::NodeVisitor& nv)
         {
             Job& job = _finishedJobs.front();
             removeChild(job._node.get());
-            job._imagePromise.resolve(job._image.get());
+
+            // If the job didn't write any fragments, return a NULL image.
+            if (job._fragmentsWritten > 0)
+                job._imagePromise.resolve(job._image.get());
+            else
+                job._imagePromise.resolve(0L);
+
             _finishedJobs.pop(); 
             detach(osg::Camera::COLOR_BUFFER);
             dirtyAttachmentMap();
@@ -276,6 +295,18 @@ TileRasterizer::preDraw(osg::RenderInfo& ri) const
             {
                 job._image.get()->_ri = &ri;
             }
+
+            // allocate a query on demand for this GC:
+            osg::GLExtensions* ext = osg::GLExtensions::Get(ri.getContextID(),true);
+            GLuint& query = _samplesQuery[ri.getContextID()];
+            if (query == INT_MAX)
+            {
+                ext->glGenQueries(1, &query);
+            }
+
+            // initiate a query for samples passing the fragment shader
+            // to see whether we drew anything.
+            ext->glBeginQuery(GL_ANY_SAMPLES_PASSED, query);
         }
     }
 }
@@ -290,6 +321,14 @@ TileRasterizer::postDraw(osg::RenderInfo& ri) const
         if (!_readbackJobs.empty()) // double check!
         {
             Job& job = _readbackJobs.front();
+
+            // get the results of the query and store the
+            // # of fragments generated in the job.
+            osg::GLExtensions* ext = osg::GLExtensions::Get(ri.getContextID(), true);
+            GLuint query = _samplesQuery[ri.getContextID()];
+            ext->glEndQuery(GL_ANY_SAMPLES_PASSED);
+            ext->glGetQueryObjectuiv(query, GL_QUERY_RESULT, &job._fragmentsWritten);
+
             _finishedJobs.push(job);
             _readbackJobs.pop();
         }

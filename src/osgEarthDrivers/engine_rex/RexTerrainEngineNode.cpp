@@ -1,5 +1,5 @@
 /* -*-c++-*- */
-/* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
+/* osgEarth - Geospatial SDK for OpenSceneGraph
 * Copyright 2008-2014 Pelican Mapping
 * http://osgearth.org
 *
@@ -46,6 +46,8 @@ using namespace osgEarth::Drivers::RexTerrainEngine;
 using namespace osgEarth;
 
 #define DEFAULT_MAX_LOD 19u
+
+//#define PROFILE
 
 //------------------------------------------------------------------------
 
@@ -152,6 +154,7 @@ _batchUpdateInProgress( false ),
 _refreshRequired      ( false ),
 _stateUpdateRequired  ( false ),
 _renderModelUpdateRequired( false ),
+_cachedLayerExtentsComputeRequired( true ),
 _rasterizer(0L)
 {
     // Necessary for pager object data
@@ -185,6 +188,10 @@ _rasterizer(0L)
 
     _terrain = new osg::Group();
     addChild(_terrain.get());
+
+    // force an update traversal in order to compute layer extents.
+    _cachedLayerExtentsComputeRequired = true;
+    ADJUST_UPDATE_TRAV_COUNT(this, +1);
 }
 
 RexTerrainEngineNode::~RexTerrainEngineNode()
@@ -217,23 +224,17 @@ RexTerrainEngineNode::resizeGLObjectBuffers(unsigned maxSize)
 void
 RexTerrainEngineNode::releaseGLObjects(osg::State* state) const
 {
-    TerrainEngineNode::releaseGLObjects(state);
-
-    getStateSet()->releaseGLObjects(state);
-
-    _terrain->getStateSet()->releaseGLObjects(state);
-
-    _imageLayerStateSet.get()->releaseGLObjects(state);
-
-    // TODO: where should this live? MapNode?
-    LayerVector layers;
-    getMap()->getLayers(layers);
-    for (LayerVector::const_iterator i = layers.begin(); i != layers.end(); ++i)
+    if (_imageLayerStateSet.valid())
     {
-        if ((*i)->getStateSet()) {
-            (*i)->getStateSet()->releaseGLObjects(state);
-        }
+        _imageLayerStateSet.get()->releaseGLObjects(state);
     }
+
+    if (_geometryPool.valid())
+    {
+        _geometryPool->clear();
+    }
+
+    TerrainEngineNode::releaseGLObjects(state);
 }
 
 void
@@ -250,14 +251,20 @@ RexTerrainEngineNode::setMap(const Map* map, const TerrainOptions& options)
     TerrainOptions myOptions = options;
     myOptions.enableMercatorFastPath() = false;
 
-    // A callback for overriding bounding boxes for tiles
-    _modifyBBoxCallback = new ModifyBoundingBoxCallback(map);
-
     // merge in the custom options:
     _terrainOptions.merge( myOptions );
 
+    _morphingSupported = true;
+    if (_terrainOptions.rangeMode() == osg::LOD::PIXEL_SIZE_ON_SCREEN)
+    {
+        OE_INFO << LC << "Range mode = pixel size; pixel tile size = " << _terrainOptions.tilePixelSize().get() << std::endl;
+
+        // force morphing off for PSOS mode
+        _morphingSupported = false;
+    }
+
     // morphing imagery LODs requires we bind parent textures to their own unit.
-    if ( _terrainOptions.morphImagery() == true )
+    if (_terrainOptions.morphImagery() == true && _morphingSupported)
     {
         _requireParentTextures = true;
     }
@@ -266,11 +273,6 @@ RexTerrainEngineNode::setMap(const Map* map, const TerrainOptions& options)
     if (map->getSRS()->isProjected())
     {
         _terrainOptions.morphTerrain() = false;
-    }
-
-    if (_terrainOptions.rangeMode() == osg::LOD::PIXEL_SIZE_ON_SCREEN)
-    {
-        OE_INFO << LC << "Range mode = pixel size; pixel tile size = " << _terrainOptions.tilePixelSize().get() << std::endl;
     }
 
     // if the envvar for tile expiration is set, override the options setting
@@ -364,17 +366,17 @@ RexTerrainEngineNode::setMap(const Map* map, const TerrainOptions& options)
         _liveTiles.get(),
         _renderBindings,
         _terrainOptions,
-        _selectionInfo,
-        _modifyBBoxCallback.get());
+        _selectionInfo);
 
     // Calculate the LOD morphing parameters:
     unsigned maxLOD = _terrainOptions.maxLOD().getOrUse(DEFAULT_MAX_LOD);
 
     _selectionInfo.initialize(
         0u, // always zero, not the terrain options firstLOD
-        std::min( _terrainOptions.maxLOD().get(), maxLOD ),
+        osg::minimum( _terrainOptions.maxLOD().get(), maxLOD ),
         map->getProfile(),
-        _terrainOptions.minTileRangeFactor().get() );
+        _terrainOptions.minTileRangeFactor().get(),
+        _terrainOptions.adaptivePolarRangeFactor().get() );
 
     // set up the initial graph
     refresh();
@@ -493,7 +495,11 @@ RexTerrainEngineNode::setupRenderBindings()
 void
 RexTerrainEngineNode::dirtyTerrain()
 {
-    _terrain->removeChildren(0, _terrain->getNumChildren());
+    if (_terrain.valid())
+    {
+        _terrain->releaseGLObjects();
+        _terrain->removeChildren(0, _terrain->getNumChildren());
+    }
 
     // clear the loader:
     _loader->clear();
@@ -579,6 +585,20 @@ RexTerrainEngineNode::dirtyState()
 }
 
 void
+RexTerrainEngineNode::cacheAllLayerExtentsInMapSRS()
+{
+    // Only call during update
+    LayerVector layers;
+    getMap()->getLayers(layers);
+    for(LayerVector::const_iterator i = layers.begin();
+        i != layers.end();
+        ++i)
+    {
+        cacheLayerExtentInMapSRS(i->get());
+    }
+}
+
+void
 RexTerrainEngineNode::traverse(osg::NodeVisitor& nv)
 {
     if (nv.getVisitorType() == nv.UPDATE_VISITOR)
@@ -589,6 +609,16 @@ RexTerrainEngineNode::traverse(osg::NodeVisitor& nv)
             _terrain->accept(visitor);
             _renderModelUpdateRequired = false;
         }
+
+        // Called once on the first update pass to ensure that all existing
+        // layers have their extents cached properly
+        if (_cachedLayerExtentsComputeRequired)
+        {
+            cacheAllLayerExtentsInMapSRS();
+            _cachedLayerExtentsComputeRequired = false;
+            ADJUST_UPDATE_TRAV_COUNT(this, -1);
+        }
+
         TerrainEngineNode::traverse( nv );
     }
 
@@ -621,6 +651,15 @@ RexTerrainEngineNode::traverse(osg::NodeVisitor& nv)
         // Assemble the terrain drawables:
         _terrain->accept(culler);
 
+        // If we're using geometry pooling, optimize the drawable for shared state
+        // by sorting the draw commands.
+        // TODO: benchmark this further to see whether it's worthwhile
+        unsigned totalTiles = 0L;
+        if (getEngineContext()->getGeometryPool()->isEnabled())
+        {
+            totalTiles = culler._terrain.sortDrawCommands();
+        }
+
 #ifdef PROFILE
         osg::Timer_t s2 = osg::Timer::instance()->tick();
         double delta = osg::Timer::instance()->delta_m(s1, s2);
@@ -629,17 +668,11 @@ RexTerrainEngineNode::traverse(osg::NodeVisitor& nv)
         if (times.size() == 60)
         {
             Registry::instance()->startActivity("CULL(ms)", Stringify()<<(times_total/times.size()));
+            Registry::instance()->startActivity("Tiles:", Stringify()<<totalTiles);
             times.clear();
             times_total = 0;
         }
 #endif
-
-        // If we're using geometry pooling, optimize the drawable for shared state
-        // by sorting the draw commands
-        if (getEngineContext()->getGeometryPool()->isEnabled())
-        {
-            culler._terrain.sortDrawCommands();
-        }
 
         // The common stateset for the terrain group:
         cv->pushStateSet(_terrain->getOrCreateStateSet());
@@ -662,21 +695,19 @@ RexTerrainEngineNode::traverse(osg::NodeVisitor& nv)
             if (!i->get()->_tiles.empty())
             {
                 lastLayer = i->get();
-                //lastLayer->_drawOrder = -1;
 
                 // if this is a RENDERTYPE_TERRAIN_SURFACE, we need to activate either the
                 // default surface state set or the image layer state set.
                 if (lastLayer->_renderType == Layer::RENDERTYPE_TERRAIN_SURFACE)
                 {
-                    //lastLayer->_order = order++;
+                    if (!surfaceStateSetPushed)
+                    {
+                        cv->pushStateSet(_surfaceStateSet.get());
+                        surfaceStateSetPushed = true;
+                    }
 
                     if (lastLayer->_imageLayer || lastLayer->_layer == NULL)
                     {
-                        if (surfaceStateSetPushed)
-                        {
-                            cv->popStateSet();
-                            surfaceStateSetPushed = false;
-                        }
                         if (!imageLayerStateSetPushed)
                         {
                             cv->pushStateSet(_imageLayerStateSet.get());
@@ -690,21 +721,20 @@ RexTerrainEngineNode::traverse(osg::NodeVisitor& nv)
                             cv->popStateSet();
                             imageLayerStateSetPushed = false;
                         }
-                        if (!surfaceStateSetPushed)
-                        {
-                            cv->pushStateSet(getSurfaceStateSet());
-                            surfaceStateSetPushed = true;
-                        }
                     }
                 }
 
                 else
                 {
-                    if (surfaceStateSetPushed || imageLayerStateSetPushed)
+                    if (imageLayerStateSetPushed)
+                    {
+                        cv->popStateSet();
+                        imageLayerStateSetPushed = false;
+                    }
+                    if (surfaceStateSetPushed)
                     {
                         cv->popStateSet();
                         surfaceStateSetPushed = false;
-                        imageLayerStateSetPushed = false;
                     }
                 }
 
@@ -713,22 +743,11 @@ RexTerrainEngineNode::traverse(osg::NodeVisitor& nv)
 
                 if (lastLayer->_layer)
                 {
-                    stateSetStack.clear();
-
-                    if (lastLayer->_layer->cull(cv, stateSetStack))
-                    {
-                        for (unsigned j = 0; j<stateSetStack.size(); ++j)
-                            cv->pushStateSet(stateSetStack[j]);
-
-                        cv->apply(*lastLayer);
-
-                        for (unsigned j = 0; j<stateSetStack.size(); ++j)
-                            cv->popStateSet();
-                    }
+                    lastLayer->_layer->apply(lastLayer, cv);                    
                 }
                 else
                 {
-                    cv->apply(*lastLayer);
+                    lastLayer->accept(*cv);
                 }
 
                 ++layersDrawn;
@@ -747,11 +766,16 @@ RexTerrainEngineNode::traverse(osg::NodeVisitor& nv)
             lastLayer->_clearOsgState = true;
         }
 
-        if (surfaceStateSetPushed || imageLayerStateSetPushed)
+        if (imageLayerStateSetPushed)
+        {
+            cv->popStateSet();
+            imageLayerStateSetPushed = false;
+        }
+
+        if (surfaceStateSetPushed)
         {
             cv->popStateSet();
             surfaceStateSetPushed = false;
-            imageLayerStateSetPushed = false;
         }
 
         // pop the common terrain state set
@@ -790,7 +814,7 @@ RexTerrainEngineNode::traverse(osg::NodeVisitor& nv)
 unsigned int
 RexTerrainEngineNode::computeSampleSize(unsigned int levelOfDetail)
 {
-    unsigned maxLevel = std::min( *_terrainOptions.maxLOD(), 19u ); // beyond LOD 19 or 20, morphing starts to lose precision.
+    unsigned maxLevel = osg::minimum( *_terrainOptions.maxLOD(), 19u ); // beyond LOD 19 or 20, morphing starts to lose precision.
     unsigned int meshSize = *_terrainOptions.tileSize();
 
     unsigned int sampleSize = meshSize;
@@ -865,10 +889,18 @@ osg::Node* renderHeightField(const GeoHeightField& geoHF)
     return mt;
 }
 
+namespace
+{
+    struct MinMax {
+        osg::Vec3d min, max;
+    };
+}
+
 osg::Node*
 RexTerrainEngineNode::createTile(const TerrainTileModel* model,
                                  int flags,
-                                 unsigned referenceLOD)
+                                 unsigned referenceLOD,
+                                 const TileKey& area)
 {
     if (model == 0L)
     {
@@ -879,54 +911,140 @@ RexTerrainEngineNode::createTile(const TerrainTileModel* model,
     // Dimension of each tile in vertices
     unsigned tileSize = getEngineContext()->getOptions().tileSize().get();
 
-    optional<bool> hasMasks(false);
-
-    // Trivial rejection test for masking geometry. Check at the top level and
-    // if there's not mask there, there's no mask at the reference LOD either.
-    osg::ref_ptr<MaskGenerator> maskGenerator = new MaskGenerator(model->getKey(), tileSize, getMap());
-
+    // MERGE: So this merge here is complicated, I ended up taking from
+    //        Dan Komisar's changes
     bool includeTilesWithMasks = (flags & CREATE_TILE_INCLUDE_TILES_WITH_MASKS) != 0;
     bool includeTilesWithoutMasks = (flags & CREATE_TILE_INCLUDE_TILES_WITHOUT_MASKS) != 0;
 
-    if (maskGenerator->hasMasks() == false && includeTilesWithoutMasks == false)
-        return 0L;
+    TileKey rootkey = area.valid() ? area : model->getKey();
+    const SpatialReference* srs = rootkey.getExtent().getSRS();
 
-    // If the ref LOD is higher than the key LOD, build a list of tile keys at the
-    // ref LOD that match up with the main tile key in the model.
-    std::vector<TileKey> keys;
-    if (referenceLOD > model->getKey().getLOD())
+    // Find the axis aligned bounding box of the mask boundary for each layer
+    MaskLayerVector maskLayers;
+    getMap()->getLayers(maskLayers);
+
+    std::vector<MinMax> boundaryMinMaxes;
+
+    for (MaskLayerVector::iterator iLayer = maskLayers.begin(); iLayer != maskLayers.end(); ++iLayer)
     {
-        unsigned span = 1 << (referenceLOD - model->getKey().getLOD());
-        unsigned x0 = model->getKey().getTileX() * span;
-        unsigned y0 = model->getKey().getTileY() * span;
+        MaskLayer* layer = iLayer->get();
+        osg::Vec3dArray* boundary = layer->getOrCreateMaskBoundary(1.0, srs, (ProgressCallback*)0L);
 
-        keys.reserve(span*span);
+        if (!boundary)
+            continue;
 
-        for (unsigned x=x0; x<x0+span; ++x)
+        // Calculate the axis-aligned bounding box of the boundary polygon:
+        MinMax minmax;
+        minmax.min = minmax.max = boundary->front();
+
+        for (osg::Vec3dArray::iterator it = boundary->begin(); it != boundary->end(); ++it)
         {
-            for (unsigned y=y0; y<y0+span; ++y)
+            if (it->x() < minmax.min.x())
+                minmax.min.x() = it->x();
+
+            if (it->y() < minmax.min.y())
+                minmax.min.y() = it->y();
+
+            if (it->x() > minmax.max.x())
+                minmax.max.x() = it->x();
+
+            if (it->y() > minmax.max.y())
+                minmax.max.y() = it->y();
+        }
+
+        boundaryMinMaxes.push_back(minmax);
+    }
+
+    // Will hold keys at reference lod to check
+    std::vector<TileKey> keys;
+
+    // Recurse down through tile hierarchy checking for masks at each level.
+    // If a given tilekey doesn't have any masks then we don't have to check children.
+    std::stack<TileKey> keyStack;
+    keyStack.push(rootkey);
+    while (!keyStack.empty())
+    {
+        TileKey key = keyStack.top();
+        keyStack.pop();
+
+        if (key.getLOD() < referenceLOD)
+        {
+            // Make a "locator" for this key so we can do coordinate conversion:
+            osg::ref_ptr<osgEarth::GeoLocator> geoLocator = GeoLocator::createForKey(key, MapInfo(getMap()));
+
+            if (geoLocator->getCoordinateSystemType() == GeoLocator::GEOCENTRIC)
+                geoLocator = geoLocator->getGeographicFromGeocentric();
+
+            bool hasMasks = false;
+
+            for (std::vector<MinMax>::iterator it = boundaryMinMaxes.begin(); it != boundaryMinMaxes.end(); ++it)
             {
-                keys.push_back(TileKey(referenceLOD, x, y, model->getKey().getProfile()));
+                // convert that bounding box to "unit" space (0..1 across the tile)
+                osg::Vec3d min_ndc, max_ndc;
+                geoLocator->modelToUnit(it->min, min_ndc);
+                geoLocator->modelToUnit(it->max, max_ndc);
+
+                // true if boundary overlaps tile in X dimension:
+                bool x_match = ((min_ndc.x() >= 0.0 && max_ndc.x() <= 1.0) ||
+                    (min_ndc.x() <= 0.0 && max_ndc.x() > 0.0) ||
+                    (min_ndc.x() < 1.0 && max_ndc.x() >= 1.0));
+
+                if (!x_match)
+                    continue;
+
+                // true if boundary overlaps tile in Y dimension:
+                bool y_match = ((min_ndc.y() >= 0.0 && max_ndc.y() <= 1.0) ||
+                    (min_ndc.y() <= 0.0 && max_ndc.y() > 0.0) ||
+                    (min_ndc.y() < 1.0 && max_ndc.y() >= 1.0));
+
+                if (y_match)
+                {
+                    // only care if this tile has any masks so we can stop as soon as we find one
+                    hasMasks = true;
+                    break;
+                }
             }
+
+            if (hasMasks == true && includeTilesWithMasks == false)
+                continue;
+
+            if (hasMasks == false && includeTilesWithoutMasks == false)
+                continue;
+
+            // In order to make this much faster what we need is a way to tell if a key is
+            // completely inside the masked region and has no skirt geometry.
+            // If there is a fast way to check this, then we can just add the (empty) output geometry
+            // with the current tilekey encoded into the user data.
+            // This will be a lower lod than the reference lod, but since there is no skirt geometry
+            // and the region is totally masked out, the user can easily compute the set of reference lod
+            // keys if they need to, and if they don't then this will save having to generate the
+            // couple thousand iterations throught the loop below.
+            // This will take care of the case when the mask coversa many reference lod tiles,
+            // and the recursive nature of this loop will make using this function on lower lod tiles much faster.
+
+            keyStack.push(key.createChildKey(0));
+            keyStack.push(key.createChildKey(1));
+            keyStack.push(key.createChildKey(2));
+            keyStack.push(key.createChildKey(3));
+        }
+        else
+        {
+            keys.push_back(key);
         }
     }
-    else
-    {
-        // no reference LOD? Just use the model's key.
-        keys.push_back(model->getKey());
-    }
+
+    if (keys.empty())
+        return 0L;
 
     // group to hold all the tiles
     osg::Group* group = new osg::Group();
-
-    maskGenerator = 0L;
 
     MapInfo mapInfo(getMap());
 
     for (std::vector<TileKey>::const_iterator key = keys.begin(); key != keys.end(); ++key)
     {
         // Mask generator creates geometry from masking boundaries when they exist.
-        maskGenerator = new MaskGenerator(*key, tileSize, getMap());
+        osg::ref_ptr<MaskGenerator> maskGenerator = new MaskGenerator(*key, tileSize, getMap());
 
         if (maskGenerator->hasMasks() == true && includeTilesWithMasks == false)
             continue;
@@ -1180,8 +1298,11 @@ RexTerrainEngineNode::cacheLayerExtentInMapSRS(Layer* layer)
     // Store the layer's extent in the map's SRS:
     LayerExtent& le = _cachedLayerExtents[layer->getUID()];
 
-    le._extent = layer->getExtent().transform(getMap()->getSRS());
-    le._computed = true;
+    if (!le._computed && getMap()->getProfile())
+    {
+        le._extent = getMap()->getProfile()->clampAndTransformExtent(layer->getExtent());
+        le._computed = true;
+    }
 }
 
 void
@@ -1259,14 +1380,6 @@ RexTerrainEngineNode::addTileLayer(Layer* tileLayer)
                     }
                 }
             }
-#if 0
-            // For an image layer, attach the default fragment shader:
-            Shaders shaders;
-            osg::StateSet* stateSet = imageLayer->getOrCreateStateSet();
-            VirtualProgram* vp = VirtualProgram::getOrCreate(stateSet);
-            shaders.load(vp, shaders.ENGINE_FRAG);
-#else            
-#endif
         }
 
         else
@@ -1426,6 +1539,8 @@ RexTerrainEngineNode::updateState()
 
         surfaceStateSet->addUniform(new osg::Uniform("oe_terrain_color", _terrainOptions.color().get()));
 
+        surfaceStateSet->addUniform(new osg::Uniform("oe_terrain_altitude", (float)0.0f));
+
         surfaceStateSet->setDefine("OE_TERRAIN_RENDER_IMAGERY");
 
         // Functions that affect only the terrain surface:
@@ -1444,11 +1559,13 @@ RexTerrainEngineNode::updateState()
         }
 
         // Normal mapping shaders:
-        if (this->normalTexturesRequired())
+        //if (this->normalTexturesRequired())
         {
             package.load(surfaceVP, package.NORMAL_MAP_VERT);
             package.load(surfaceVP, package.NORMAL_MAP_FRAG);
-            surfaceStateSet->setDefine("OE_TERRAIN_RENDER_NORMAL_MAP");
+
+            if (this->normalTexturesRequired())
+                surfaceStateSet->setDefine("OE_TERRAIN_RENDER_NORMAL_MAP");
         }
 
         if (_terrainOptions.enableBlending() == true)
@@ -1462,18 +1579,21 @@ RexTerrainEngineNode::updateState()
         }
 
         // Morphing?
-        if (_terrainOptions.morphTerrain() == true ||
-            _terrainOptions.morphImagery() == true)
+        if (_morphingSupported)
         {
-            package.load(surfaceVP, package.MORPHING_VERT);
+            if (_terrainOptions.morphTerrain() == true ||
+                _terrainOptions.morphImagery() == true)
+            {
+                package.load(surfaceVP, package.MORPHING_VERT);
 
-            if (_terrainOptions.morphImagery() == true)
-            {
-                surfaceStateSet->setDefine("OE_TERRAIN_MORPH_IMAGERY");
-            }
-            if (_terrainOptions.morphTerrain() == true)
-            {
-                surfaceStateSet->setDefine("OE_TERRAIN_MORPH_GEOMETRY");
+                if (_terrainOptions.morphImagery() == true)
+                {
+                    surfaceStateSet->setDefine("OE_TERRAIN_MORPH_IMAGERY");
+                }
+                if (_terrainOptions.morphTerrain() == true)
+                {
+                    surfaceStateSet->setDefine("OE_TERRAIN_MORPH_GEOMETRY");
+                }
             }
         }
 
@@ -1584,7 +1704,8 @@ RexTerrainEngineNode::updateState()
             Registry::objectIndex()->getObjectIDUniformName().c_str(), OSGEARTH_OBJECTID_TERRAIN) );
         
         // For an image layer, attach the default fragment shader:
-        _imageLayerStateSet = osg::clone(surfaceStateSet, osg::CopyOp::DEEP_COPY_ALL);
+        //_imageLayerStateSet = osg::clone(surfaceStateSet, osg::CopyOp::DEEP_COPY_ALL);
+        _imageLayerStateSet = new osg::StateSet();
         VirtualProgram* vp = VirtualProgram::getOrCreate(_imageLayerStateSet.get());
         package.load(vp, package.ENGINE_FRAG);
 

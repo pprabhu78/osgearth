@@ -1,6 +1,6 @@
 /* -*-c++-*- */
-/* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2016 Pelican Mapping
+/* osgEarth - Geospatial SDK for OpenSceneGraph
+* Copyright 2019 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -20,6 +20,7 @@
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
 */
 #include <osgEarth/MapNode>
+#include <osgEarth/CascadeDrapingDecorator>
 #include <osgEarth/ClampingTechnique>
 #include <osgEarth/CullingUtils>
 #include <osgEarth/DrapingTechnique>
@@ -84,6 +85,30 @@ namespace
         }
 
         osg::observer_ptr<MapNode> _mapNode;
+    };
+
+    // proxy cull callback for layers that have their own cull callback
+    struct LayerCullCallbackDispatch : public osg::NodeCallback
+    {
+        Layer* _layer;
+
+        LayerCullCallbackDispatch(Layer* layer) : _layer(layer) { }
+
+        virtual void operator()(osg::Node* node, osg::NodeVisitor* nv)
+        {
+            if (_layer->getNode())
+            {
+                _layer->apply(_layer->getNode(), nv);
+            }
+            //if (_layer->getCullCallback() && _layer->getNode())
+            //{
+            //    _layer->apply(_layer->getNode(), nv);
+            //}
+            else
+            {
+                traverse(node, nv);
+            }
+        };
     };
 
     typedef std::vector< osg::ref_ptr<Extension> > Extensions;
@@ -301,35 +326,49 @@ MapNode::init()
     _overlayDecorator = new OverlayDecorator();
     _terrainEngineContainer->addChild(_overlayDecorator);
 
-    // install the Draping technique for overlays:
-    DrapingTechnique* draping = new DrapingTechnique();
-
-    const char* envOverlayTextureSize = ::getenv("OSGEARTH_OVERLAY_TEXTURE_SIZE");
-
-    if ( _mapNodeOptions.overlayBlending().isSet() )
-        draping->setOverlayBlending( *_mapNodeOptions.overlayBlending() );
-    if ( envOverlayTextureSize )
-        draping->setTextureSize( as<int>(envOverlayTextureSize, 1024) );
-    else if ( _mapNodeOptions.overlayTextureSize().isSet() )
-        draping->setTextureSize( *_mapNodeOptions.overlayTextureSize() );
-    if ( _mapNodeOptions.overlayMipMapping().isSet() )
-        draping->setMipMapping( *_mapNodeOptions.overlayMipMapping() );
-    if ( _mapNodeOptions.overlayAttachStencil().isSet() )
-        draping->setAttachStencil( *_mapNodeOptions.overlayAttachStencil() );
-    if ( _mapNodeOptions.overlayResolutionRatio().isSet() )
-        draping->setResolutionRatio( *_mapNodeOptions.overlayResolutionRatio() );
-
-    draping->reestablish( _terrainEngine );
-    _overlayDecorator->addTechnique( draping );
-    _drapingManager = &draping->getDrapingManager();
-
     // install the Clamping technique for overlays:
     ClampingTechnique* clamping = new ClampingTechnique();
     _overlayDecorator->addTechnique(clamping);
     _clampingManager = &clamping->getClampingManager();
 
+    bool envUseCascadedDraping = (::getenv("OSGEARTH_USE_CASCADE_DRAPING") != 0L);
+    if (envUseCascadedDraping || _mapNodeOptions.useCascadeDraping() == true)
+    {
+        _cascadeDrapingDecorator = new CascadeDrapingDecorator(getMapSRS(), _terrainEngine->getResources());
+        _overlayDecorator->addChild(_cascadeDrapingDecorator);
+        _drapingManager = &_cascadeDrapingDecorator->getDrapingManager();
+        _cascadeDrapingDecorator->addChild(_terrainEngine);
+    }
+
+    else
+    {
+        // simple draping - faster but less accurate
+
+        DrapingTechnique* draping = new DrapingTechnique();
+
+        const char* envOverlayTextureSize = ::getenv("OSGEARTH_OVERLAY_TEXTURE_SIZE");
+
+        if ( _mapNodeOptions.overlayBlending().isSet() )
+            draping->setOverlayBlending( *_mapNodeOptions.overlayBlending() );
+        if ( envOverlayTextureSize )
+            draping->setTextureSize( as<int>(envOverlayTextureSize, 1024) );
+        else if ( _mapNodeOptions.overlayTextureSize().isSet() )
+            draping->setTextureSize( *_mapNodeOptions.overlayTextureSize() );
+        if ( _mapNodeOptions.overlayMipMapping().isSet() )
+            draping->setMipMapping( *_mapNodeOptions.overlayMipMapping() );
+        if ( _mapNodeOptions.overlayAttachStencil().isSet() )
+            draping->setAttachStencil( *_mapNodeOptions.overlayAttachStencil() );
+        if ( _mapNodeOptions.overlayResolutionRatio().isSet() )
+            draping->setResolutionRatio( *_mapNodeOptions.overlayResolutionRatio() );
+
+        draping->reestablish( _terrainEngine );
+        _overlayDecorator->addTechnique( draping );
+        _drapingManager = &draping->getDrapingManager();
+
+        _overlayDecorator->addChild(_terrainEngine);
+    }
+
     _overlayDecorator->setTerrainEngine(_terrainEngine);
-    _overlayDecorator->addChild(_terrainEngine);
 
     // make a group for the model layers. (Sticky otherwise the osg optimizer will remove it)
     _layerNodes = new StickyGroup();
@@ -364,13 +403,14 @@ MapNode::init()
     osg::Material* defaultMaterial = new MaterialGL3();
     defaultMaterial->setDiffuse(defaultMaterial->FRONT, osg::Vec4(1,1,1,1));
     defaultMaterial->setAmbient(defaultMaterial->FRONT, osg::Vec4(1,1,1,1));
+    //defaultMaterial->setSpecular(defaultMaterial->FRONT, osg::Vec4(1,0,0,1));
     stateset->setAttributeAndModes(defaultMaterial, 1);
     MaterialCallback().operator()(defaultMaterial, 0L);
 
     dirtyBound();
 
     // install a callback that sets the viewport size uniform:
-    this->addCullCallback(new InstallViewportSizeUniform());
+    this->addCullCallback(new InstallCameraUniform());
 
     // install a callback that updates a horizon object and installs a clipping plane
     if (getMapSRS()->isGeographic())
@@ -614,6 +654,7 @@ namespace
                     container->setName(layer->getName());
                     container->addChild(node);
                     container->setStateSet(layer->getOrCreateStateSet());
+                    container->setCullCallback(new LayerCullCallbackDispatch(layer));
                     layerNodes->addChild(container);
                 }
             }
@@ -722,31 +763,35 @@ MapNode::traverse( osg::NodeVisitor& nv )
 void
 MapNode::resizeGLObjectBuffers(unsigned maxSize)
 {
-    osg::Group::resizeGLObjectBuffers(maxSize);
-
     LayerVector layers;
     getMap()->getLayers(layers);
     for (LayerVector::const_iterator i = layers.begin(); i != layers.end(); ++i)
     {
-        if ((*i)->getStateSet()) {
-            (*i)->getStateSet()->resizeGLObjectBuffers(maxSize);
-        }
+        i->get()->resizeGLObjectBuffers(maxSize);
     }
+
+    osg::Group::resizeGLObjectBuffers(maxSize);
 }
 
 void
 MapNode::releaseGLObjects(osg::State* state) const
 {
-    osg::Group::releaseGLObjects(state);
-
     LayerVector layers;
     getMap()->getLayers(layers);
     for (LayerVector::const_iterator i = layers.begin(); i != layers.end(); ++i)
     {
-        if ((*i)->getStateSet()) {
-            (*i)->getStateSet()->releaseGLObjects(state);
-        }
+        i->get()->releaseGLObjects(state);
     }
+
+    // osg::Node doesn't release nested callbacks, oops
+    for(const osg::Callback* cc = getCullCallback(); cc; cc = cc->getNestedCallback())
+        cc->releaseGLObjects(state);
+    for(const osg::Callback* uc = getUpdateCallback(); uc; uc = uc->getNestedCallback())
+        uc->releaseGLObjects(state);
+    for(const osg::Callback* ec = getEventCallback(); ec; ec = ec->getNestedCallback())
+        ec->releaseGLObjects(state);
+
+    osg::Group::releaseGLObjects(state);
 }
 
 DrapingManager*
@@ -759,4 +804,18 @@ ClampingManager*
 MapNode::getClampingManager()
 {
     return _clampingManager;
+}
+
+osg::Node*
+MapNode::getDrapingDump()
+{
+    return
+        _cascadeDrapingDecorator ? _cascadeDrapingDecorator->getDump() :
+        _overlayDecorator->getDump();
+}
+
+CascadeDrapingDecorator*
+MapNode::getCascadeDrapingDecorator() const
+{
+    return _cascadeDrapingDecorator;
 }

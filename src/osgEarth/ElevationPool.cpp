@@ -1,5 +1,5 @@
 
-/* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
+/* osgEarth - Geospatial SDK for OpenSceneGraph
  * Copyright 2008-2016 Pelican Mapping
  * http://osgearth.org
  *
@@ -314,7 +314,7 @@ ElevationPool::getTile(const TileKey& key, const ElevationLayerVector& layers, o
 ElevationEnvelope*
 ElevationPool::createEnvelope(const SpatialReference* srs, unsigned lod)
 {
-    ElevationEnvelope* e = new ElevationEnvelope();
+    osg::ref_ptr<ElevationEnvelope> e = new ElevationEnvelope();
     e->_inputSRS = srs; 
     e->_lod = lod;
     e->_pool = this;
@@ -335,8 +335,12 @@ ElevationPool::createEnvelope(const SpatialReference* srs, unsigned lod)
 
         e->_mapProfile = map->getProfile();
     }
+    else
+    {
+        e = NULL;
+    }
 
-    return e;
+    return e.release();
 }
 
 //........................................................................
@@ -452,17 +456,6 @@ ElevationEnvelope::getElevations(const std::vector<osg::Vec3d>& input,
         output.push_back(elevation);
         if (elevation != NO_DATA_VALUE)
             ++count;
-    }
-
-    if (count < input.size())
-    {
-        OE_WARN << LC << "Issue: Envelope had failed samples" << std::endl;
-        for (ElevationPool::QuerySet::const_iterator tile_ref = _tiles.begin(); tile_ref != _tiles.end(); ++tile_ref)
-        {
-            ElevationPool::Tile* tile = tile_ref->get();
-            OE_WARN << LC << " ... tile " << tile->_bounds.toString() << std::endl;
-        }
-        OE_WARN << LC << std::endl;
     }
 
     return count;

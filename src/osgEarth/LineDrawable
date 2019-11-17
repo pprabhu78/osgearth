@@ -1,6 +1,6 @@
 /* -*-c++-*- */
-/* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2016 Pelican Mapping
+/* osgEarth - Geospatial SDK for OpenSceneGraph
+ * Copyright 2019 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -31,7 +31,7 @@ namespace osgEarth
      * Drawable that renders lines using the GPU. It will fall back on rendering
      * OpenGL lines when shader-based rendering is unavailable.
      *
-     * Note: If you use this class you must have the oe_ViewportSize
+     * Note: If you use this class you must have the oe_Camera
      * uniform set. MapNode sets it automatically so any LineDrawable under
      * a MapNode is fine. Otherwise, use the osgEarth::InstallViewportSizeUniform
      * callback on your scene graph.
@@ -156,11 +156,18 @@ namespace osgEarth
         //! Override Node::accept to include the singleton GPU statset
         virtual void accept(osg::NodeVisitor& nv);
 
+    public: // osg::Object
+
+        virtual void resizeGLObjectBuffers(unsigned maxSize);
+        virtual void releaseGLObjects(osg::State* state) const;
+
     public:
             
         //! GL mode (for serializer only; do not use)
         void setMode(GLenum mode);
         GLenum getMode() const { return _mode; }
+
+        osg::StateSet* getGPUStateSet() const { return _gpuStateSet.get(); }
 
     protected:
 
@@ -192,7 +199,8 @@ namespace osgEarth
         unsigned getRealIndex(unsigned) const;
         void updateFirstCount();
 
-        static osg::ref_ptr<osg::StateSet> _gpuStateSet;
+        static osg::observer_ptr<osg::StateSet> s_gpuStateSet;
+        osg::ref_ptr<osg::StateSet> _gpuStateSet;
     };
 
 
