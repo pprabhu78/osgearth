@@ -60,8 +60,8 @@ namespace osgEarth { namespace SilverLining
     public:
         CloudLayer(uintptr_t handle) : _handle(handle) { }
 
-        void SetEnabled(bool value);
-        bool GetEnabled() const;
+        void SetEnabled(bool value, Atmosphere&);
+        bool GetEnabled(Atmosphere&) const;
 
         void SetBaseWidth(double value);
         double GetBaseWidth() const;
@@ -69,8 +69,8 @@ namespace osgEarth { namespace SilverLining
         void SetBaseLength(double value);
         double GetBaseLength() const;
 
-        void SetBaseAltitude(double value);
-        double GetBaseAltitude() const;
+        void SetBaseAltitude(double value, Atmosphere&);
+        double GetBaseAltitude(Atmosphere&) const;
 
         void SetThickness(double value);
         double GetThickness() const;
@@ -78,8 +78,8 @@ namespace osgEarth { namespace SilverLining
         void SetDensity(double value);
         double GetDensity() const;
 
-        void SetLayerPosition(double east, double north);
-        void GetLayerPosition(double& east, double& north) const;
+        void SetLayerPosition(double east, double north, Atmosphere&);
+        void GetLayerPosition(double& east, double& north, Atmosphere&) const;
 
         void SetIsInfinite(bool value);
         bool GetIsInfinite() const;
@@ -107,7 +107,7 @@ namespace osgEarth { namespace SilverLining
     class OSGEARTHSILVERLINING_EXPORT CloudLayerFactory
     {
     public:
-        static CloudLayer Create(int kind);
+        static CloudLayer Create(int kind, Atmosphere&);
     };
 
     class OSGEARTHSILVERLINING_EXPORT WindVolume
@@ -202,8 +202,9 @@ namespace osgEarth { namespace SilverLining
         bool GetEnvironmentMap(GLuint &environmentMapTex, int facesToRender = 6, bool floatingPoint = false, void* cameraID = 0, bool drawClouds = true, bool drawSunAndMoon = true, bool geocentricMode = false) const;
         void SetHaze(const osg::Vec3 &color, double depth, double density);
     public:
-        Atmosphere(uintptr_t handle) : _handle(handle) { }
+        Atmosphere(uintptr_t handle, uintptr_t cameraHandle) : _handle(handle), _cameraHandle(cameraHandle) { }
         uintptr_t _handle;
+        uintptr_t _cameraHandle;
     };
 
 } } // namespace osgEarth::SilverLining

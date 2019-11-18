@@ -39,13 +39,19 @@ void Atmosphere::SetSkyModel(SkyModel skyModel) { HANDLE->SetSkyModel(static_cas
 Atmosphere::SkyModel Atmosphere::GetSkyModel() const { return static_cast<SkyModel>(HANDLE->GetSkyModel()); }
 AtmosphericConditions Atmosphere::GetConditions() const { return AtmosphericConditions((uintptr_t)HANDLE->GetConditions()); }
 bool Atmosphere::GetFogEnabled() const { return HANDLE->GetFogEnabled(); }
-void Atmosphere::GetFogSettings(float &density, osg::Vec3f &color) const {HANDLE->GetFogSettings(&density, &color.x(), &color.y(), &color.z());}
-void Atmosphere::GetHorizonColor(float yawDeg, float pitchDeg, osg::Vec3f &color) const { HANDLE->GetHorizonColor(yawDeg, pitchDeg, &color.x(), &color.y(), &color.z());}
+void Atmosphere::GetFogSettings(float &density, osg::Vec3f &color) const 
+{HANDLE->GetFogSettings(&density, &color.x(), &color.y(), &color.z());}
+void Atmosphere::GetHorizonColor(float yawDeg, float pitchDeg, osg::Vec3f &color) const 
+{ 
+    ((::SilverLining::Atmosphere*)(_handle))->GetHorizonColor(&color.x(), &color.y(), &color.z(), yawDeg, pitchDeg, (::SilverLining::Camera*)(_cameraHandle));
+}
 void Atmosphere::SetHaze(const osg::Vec3 &color, double depth, double density) { HANDLE->SetHaze(color.x(), color.y(), color.z(),depth, density);}
 bool Atmosphere::GetEnvironmentMap(GLuint &environmentMapTex, int facesToRender, bool floatingPoint, void* cameraID, bool drawClouds, bool drawSunAndMoon, bool geocentricMode) const
 {
     void * ptr;
-    bool success = HANDLE->GetEnvironmentMap(ptr, facesToRender, floatingPoint, cameraID, drawClouds, drawSunAndMoon, geocentricMode);
+    bool success = ((::SilverLining::Atmosphere*)(_handle))->GetEnvironmentMap(ptr
+        , (::SilverLining::Camera*)(_cameraHandle)
+        , facesToRender, floatingPoint, drawClouds, drawSunAndMoon, geocentricMode);
     if (success)
        environmentMapTex = static_cast<GLuint>(reinterpret_cast<size_t>(ptr));
     return success;
@@ -82,7 +88,7 @@ int AtmosphericConditions::SetWind(const WindVolume& windVolume)
 int AtmosphericConditions::SetWind(double metersPerSecond, double degreesFromNorth) { return SetWind(WindVolume(metersPerSecond, degreesFromNorth)); }
 bool AtmosphericConditions::RemoveWindVolume(int layerHandle) { return HANDLE->RemoveWindVolume(layerHandle); }
 void AtmosphericConditions::ClearWindVolumes() { HANDLE->ClearWindVolumes(); }
-void AtmosphericConditions::SetPresetConditions(ConditionPresets preset, Atmosphere& atm) { HANDLE->SetPresetConditions(static_cast< ::SilverLining::AtmosphericConditions::ConditionPresets >(preset), *(::SilverLining::Atmosphere*)atm._handle); }
+void AtmosphericConditions::SetPresetConditions(ConditionPresets preset, Atmosphere& atm) { HANDLE->SetPresetConditions(static_cast< ::SilverLining::AtmosphericConditions::ConditionPresets >(preset), (::SilverLining::Camera*)atm._cameraHandle); }
 void AtmosphericConditions::EnableTimePassage(bool enabled, long relightFrequencyMS) { HANDLE->EnableTimePassage(enabled, relightFrequencyMS); }
 void AtmosphericConditions::GetLocation(double &latitude, double &longitude, double &altitude) const { latitude = HANDLE->GetLocation().GetLatitude(); longitude = HANDLE->GetLocation().GetLongitude(); altitude = HANDLE->GetLocation().GetAltitude(); }
 void AtmosphericConditions::SetFog(double density, const osg::Vec3 &color) { HANDLE->SetFog(density, color.x(), color.y(), color.z()); }
@@ -115,10 +121,27 @@ double WindVolume::GetDirection() const { return _direction; }
 #undef  HANDLE
 #define HANDLE ((::SilverLining::CloudLayer*)_handle)
 
-SETGET(CloudLayer, Enabled, bool)
+void CloudLayer::SetEnabled(bool value, Atmosphere& a)
+{
+    HANDLE->SetEnabled(value, (::SilverLining::Camera*)a._cameraHandle);
+}
+bool CloudLayer::GetEnabled(Atmosphere& a) const
+{
+    return HANDLE->GetEnabled((::SilverLining::Camera*)a._cameraHandle);
+}
+
+void CloudLayer::SetBaseAltitude(double value, Atmosphere& a)
+{
+    HANDLE->SetBaseAltitude(value, (::SilverLining::Camera*)a._cameraHandle);
+}
+double CloudLayer::GetBaseAltitude(Atmosphere& a) const
+{
+    return HANDLE->GetBaseAltitude((::SilverLining::Camera*)a._cameraHandle);
+}
+
 SETGET(CloudLayer, BaseWidth, double)
 SETGET(CloudLayer, BaseLength, double)
-SETGET(CloudLayer, BaseAltitude, double)
+
 SETGET(CloudLayer, Thickness, double)
 SETGET(CloudLayer, Density, double)
 SETGET(CloudLayer, IsInfinite, bool)
@@ -126,8 +149,14 @@ SETGET(CloudLayer, CloudWrapping, bool)
 SETGET(CloudLayer, FadeTowardEdges, bool)
 SETGET(CloudLayer, Alpha, double)
 
-void CloudLayer::SetLayerPosition(double e, double n) { HANDLE->SetLayerPosition(e, n); }
-void CloudLayer::GetLayerPosition(double& e, double& n) const { HANDLE->GetLayerPosition(e, n); }
+void CloudLayer::SetLayerPosition(double e, double n, Atmosphere& a) 
+{ 
+    HANDLE->SetLayerPosition(e, n, (::SilverLining::Camera*)a._cameraHandle);
+}
+void CloudLayer::GetLayerPosition(double& e, double& n, Atmosphere& a) const 
+{ 
+    HANDLE->GetLayerPosition(e, n, (::SilverLining::Camera*)a._cameraHandle);
+}
 
 void CloudLayer::SetWind(double windEast, double windSouth) { HANDLE->SetWind(windEast, windSouth); }
 void CloudLayer::GetWind(double& windEast, double& windSouth) const { HANDLE->GetWind(windEast, windSouth); }
@@ -135,9 +164,12 @@ void CloudLayer::GetWind(double& windEast, double& windSouth) const { HANDLE->Ge
 void CloudLayer::SetCloudAnimationEffects(double a, bool b, int c, int d) { HANDLE->SetCloudAnimationEffects(a, b, c, d); }
 void CloudLayer::GetCloudAnimationEffects(double& a, bool& b, int& c, int& d) { HANDLE->SetCloudAnimationEffects(a, b, c, d); }
 
-void CloudLayer::SeedClouds(Atmosphere& a) { HANDLE->SeedClouds(*(::SilverLining::Atmosphere*)a._handle); }
+void CloudLayer::SeedClouds(Atmosphere& a) 
+{ 
+    HANDLE->SeedClouds((::SilverLining::Camera*)a._cameraHandle); 
+}
 
 //................................
-CloudLayer CloudLayerFactory::Create(int kind) {
-    return CloudLayer((uintptr_t)::SilverLining::CloudLayerFactory::Create((::CloudTypes)kind));
+CloudLayer CloudLayerFactory::Create(int kind, Atmosphere& a) {
+    return CloudLayer((uintptr_t)::SilverLining::CloudLayerFactory::Create((::CloudTypes)kind, (::SilverLining::Atmosphere*)a._handle));
 }
