@@ -66,29 +66,13 @@ SkyDrawable::drawImplementation(osg::RenderInfo& renderInfo) const
         if (_SL->getCallback())
             _SL->getCallback()->onDrawSky(_SL->getAtmosphereWrapper());
 
-        const osg::Matrix & projMat = renderInfo.getState()->getProjectionMatrix();
-        ::SilverLining::Matrix4 slProjMat(projMat.ptr());
-        slProjMat.Transpose();
-        _SL->getSLCamera()->SetProjectionMatrix(slProjMat);
-
-        const osg::Matrix & viewMat = renderInfo.getState()->getModelViewMatrix();
-        ::SilverLining::Matrix4 slViewMat(viewMat.ptr());
-        slViewMat.Transpose();
-        _SL->getSLCamera()->SetModelViewMatrix(slViewMat);
-
-        osg::Viewport *vp = renderInfo.getCurrentCamera()->getViewport();
-        if (vp)
-        {
-            int vpx = vp->x();
-            int vpy = vp->y();
-            int vpw = vp->width();
-            int vph = vp->height();
-
-            _SL->getSLCamera()->SetViewport(vpx, vpy, vpw, vph);
-        }
+        osg::Matrix projMat = renderInfo.getState()->getProjectionMatrix();
+        _SL->getAtmosphere()->SetProjectionMatrix(projMat.ptr());
+        osg::Matrix viewMat = renderInfo.getCurrentCamera()->getViewMatrix();
+        _SL->getAtmosphere()->SetCameraMatrix(viewMat.ptr());
 
         // draw the sky.
-        _SL->getAtmosphere()->DrawSky(_SL->getSLCamera(),
+        _SL->getAtmosphere()->DrawSky(
             true,
             _SL->getSRS()->isGeographic(),
             _SL->getSkyBoxSize(),

@@ -26,7 +26,6 @@
 #include <osgEarth/Threading>
 
 namespace SilverLining {
-    class Camera;
     class Atmosphere;
     class CloudLayer;
     class MillisecondTimer;
@@ -60,7 +59,6 @@ namespace osgEarth { namespace SilverLining
         bool ready() const { return _initAttempted && !_initFailed; }
 
         ::SilverLining::Atmosphere* getAtmosphere() { return _atmosphere; }
-        ::SilverLining::Camera* getSLCamera() { return _slCamera; }
 
         Atmosphere& getAtmosphereWrapper() { return *_atmosphereWrapper; }
 
@@ -94,7 +92,6 @@ namespace osgEarth { namespace SilverLining
 
     private:
         ::SilverLining::Atmosphere* _atmosphere;
-		::SilverLining::Camera* _slCamera;
 
         double _skyBoxSize;
 

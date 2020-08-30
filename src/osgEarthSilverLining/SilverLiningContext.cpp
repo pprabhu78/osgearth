@@ -84,9 +84,8 @@ _minAmbient           ( 0,0,0,0 )
     _atmosphere = new ::SilverLining::Atmosphere(
         options.user()->c_str(),
         options.licenseCode()->c_str() );
-    _slCamera = ::SilverLining::CameraFactory::GetInstance()->CreateCamera(true);
 
-    _atmosphereWrapper = new Atmosphere((uintptr_t)_atmosphere, (uintptr_t)_slCamera);
+    _atmosphereWrapper = new Atmosphere((uintptr_t)_atmosphere);
 
     _srs = osgEarth::SpatialReference::get("wgs84");
 }
@@ -160,9 +159,8 @@ SilverLiningContext::initialize(osg::RenderInfo& renderInfo)
 
                 // Defaults for a projected terrain. ECEF terrain vectors are set
                 // in updateLocation().
-                
-                _slCamera->SetUpVector(::SilverLining::Vector3(0.0, 0.0, 1.0));
-                _slCamera->SetRightVector(::SilverLining::Vector3(1.0, 0.0, 0.0));
+                _atmosphere->SetUpVector( 0.0, 0.0, 1.0 );
+                _atmosphere->SetRightVector( 1.0, 0.0, 0.0 );
 
                 // Configure the timer used for animations
                 _atmosphere->GetConditions()->SetMillisecondTimer(_msTimer);
@@ -190,20 +188,20 @@ SilverLiningContext::initialize(osg::RenderInfo& renderInfo)
 void
 SilverLiningContext::setupClouds()
 {
-    ::SilverLining::CloudLayer* clouds = ::SilverLining::CloudLayerFactory::Create(::CUMULUS_CONGESTUS, _atmosphere);
+    ::SilverLining::CloudLayer* clouds = ::SilverLining::CloudLayerFactory::Create( ::CUMULUS_CONGESTUS );
     clouds->SetIsInfinite( true );
     clouds->SetFadeTowardEdges(true);
-    clouds->SetBaseAltitude( 2000, _slCamera );
+    clouds->SetBaseAltitude( 2000 );
     clouds->SetThickness( 200 );
     clouds->SetBaseLength( 100000 );
     clouds->SetBaseWidth( 100000 );
     clouds->SetDensity( 0.6 );
     clouds->SetAlpha( 0.8 );
 
-    clouds->SeedClouds( _slCamera );
+    clouds->SeedClouds( *_atmosphere );
     clouds->GenerateShadowMaps( false );
 
-    clouds->SetLayerPosition(0, 0, _slCamera);
+    clouds->SetLayerPosition(0, 0);
 
     _atmosphere->GetConditions()->AddCloudLayer( clouds );
 }
@@ -278,8 +276,8 @@ SilverLiningContext::updateLocation()
 
     east.normalize();
 
-    _slCamera->SetUpVector(::SilverLining::Vector3(up.x(), up.y(), up.z()));
-    _slCamera->SetRightVector(::SilverLining::Vector3(east.x(), east.y(), east.z()));
+    _atmosphere->SetUpVector(up.x(), up.y(), up.z());
+    _atmosphere->SetRightVector(east.x(), east.y(), east.z());
 
     // Get new lat / lon / altitude
     osg::Vec3d latLonAlt;

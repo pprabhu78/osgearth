@@ -22,6 +22,10 @@
 #include "SilverLiningContextNode"
 #include <osgEarth/SpatialReference>
 
+#ifndef SILVERLINING_MAJOR_VERSION
+#include <Version.h>
+#endif
+
 #undef  LC
 #define LC "[SilverLining:SkyDrawable] "
 
@@ -63,7 +67,7 @@ CloudsDrawable::drawImplementation(osg::RenderInfo& renderInfo) const
             adapters.push_back( new osgEarth::NativeProgramAdapter(state, _SL->getAtmosphere()->GetPrecipitationShader(), NULL, "PrecipitationShader"));
             //adapters.push_back(new osgEarth::NativeProgramAdapter(state, _SL->getAtmosphere()->GetAtmosphericLimbShader(), NULL, "AtmosphericLimbShader"));
 
-            SL_VECTOR(unsigned) handles = _SL->getAtmosphere()->GetActivePlanarCloudShaders(_SL->getSLCamera());
+            SL_VECTOR(unsigned) handles = _SL->getAtmosphere()->GetActivePlanarCloudShaders();
             for(int i=0; i<handles.size(); ++i)          
                 adapters.push_back( new osgEarth::NativeProgramAdapter(state, handles[i], NULL, "PlanarCloudShader"));
         }
@@ -74,7 +78,12 @@ CloudsDrawable::drawImplementation(osg::RenderInfo& renderInfo) const
             _SL->getCallback()->onDrawClouds(_SL->getAtmosphereWrapper());
 
         renderInfo.getState()->disableAllVertexArrays();
-        _SL->getAtmosphere()->DrawObjects(_SL->getSLCamera(), true, true, true, 0.0f, false, true, true, true, _SL->getSRS()->isGeographic());
+
+#if ((SILVERLINING_MAJOR_VERSION >= 5) && (SILVERLINING_MINOR_VERSION >= 30))
+        _SL->getAtmosphere()->DrawObjects(true, true, true, 0.0f, false, 0, true, true, true, _SL->getSRS()->isGeographic());
+#else
+        _SL->getAtmosphere()->DrawObjects(true, true, true);
+#endif
 
         // Restore the GL state to where it was before.
         state->dirtyAllVertexArrays();
@@ -93,7 +102,7 @@ CloudsDrawable::computeBoundingBox() const
         return cloudBoundBox;
     
     double minX, minY, minZ, maxX, maxY, maxZ;
-    _SL->getAtmosphere()->GetCloudBounds( minX, minY, minZ, maxX, maxY, maxZ, _SL->getSLCamera());
+    _SL->getAtmosphere()->GetCloudBounds( minX, minY, minZ, maxX, maxY, maxZ );
     cloudBoundBox.set( osg::Vec3d(minX, minY, minZ), osg::Vec3d(maxX, maxY, maxZ) );
     return cloudBoundBox;
 }
